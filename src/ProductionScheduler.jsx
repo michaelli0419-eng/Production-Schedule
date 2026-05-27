@@ -183,6 +183,10 @@ function normalizeJob(job, index) {
       inspections: Boolean(job.readiness?.inspections),
     },
     notes: job.notes || "",
+    sourceType: job.sourceType || "",
+    sourceSheet: job.sourceSheet || "",
+    sourceRow: job.sourceRow || "",
+    jobNumber: job.jobNumber || "",
   };
 }
 
@@ -850,6 +854,11 @@ export default function ProductionScheduler() {
                   Project
                   <input value={selectedJob.name} onChange={(event) => updateJob(selectedJob.id, { name: event.target.value })} />
                 </label>
+                {selectedJob.sourceType === "master" && (
+                  <div className="ps-source-note">
+                    Excel row {selectedJob.sourceRow} · Job {selectedJob.jobNumber || selectedJob.id}
+                  </div>
+                )}
                 <label>
                   District / client
                   <input value={selectedJob.client} onChange={(event) => updateJob(selectedJob.id, { client: event.target.value })} />

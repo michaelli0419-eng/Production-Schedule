@@ -508,6 +508,16 @@ button {
   text-transform: none;
 }
 
+.ps-source-note {
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .ps-two,
 .ps-three {
   display: grid;

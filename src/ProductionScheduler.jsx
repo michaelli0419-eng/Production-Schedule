@@ -187,6 +187,20 @@ function normalizeJob(job, index) {
     sourceSheet: job.sourceSheet || "",
     sourceRow: job.sourceRow || "",
     jobNumber: job.jobNumber || "",
+    master: {
+      contract: job.master?.contract || "",
+      submittalsOut: job.master?.submittalsOut || "",
+      submittalsReceived: job.master?.submittalsReceived || "",
+      dsaStatus: job.master?.dsaStatus || "",
+      dsaRedlines: job.master?.dsaRedlines || "",
+      dsaApproval: job.master?.dsaApproval || "",
+      inspector: job.master?.inspector || "",
+      jobCard: job.master?.jobCard || "",
+      lab: job.master?.lab || "",
+      subcontractStatus: job.master?.subcontractStatus || "",
+      openItems: job.master?.openItems || "",
+      pmUpdate: job.master?.pmUpdate || "",
+    },
   };
 }
 
@@ -525,6 +539,28 @@ export default function ProductionScheduler() {
       });
       showToast("Excel save failed");
     }
+  }
+
+  function updateMasterField(id, field, value) {
+    setJobs((current) =>
+      current.map((job) => {
+        if (job.id !== id) return job;
+        const master = {
+          ...job.master,
+          [field]: value,
+        };
+        const notes =
+          field === "openItems" || field === "pmUpdate"
+            ? [master.openItems, master.pmUpdate].filter(Boolean).join("\n\nPM Update: ")
+            : job.notes;
+
+        return {
+          ...job,
+          master,
+          notes,
+        };
+      }),
+    );
   }
 
   function dateToX(dateStr) {
@@ -884,7 +920,11 @@ export default function ProductionScheduler() {
                   </div>
                 )}
                 <label>
-                  District / client
+                  Job number
+                  <input value={selectedJob.jobNumber} onChange={(event) => updateJob(selectedJob.id, { jobNumber: event.target.value })} />
+                </label>
+                <label>
+                  Project manager
                   <input value={selectedJob.client} onChange={(event) => updateJob(selectedJob.id, { client: event.target.value })} />
                 </label>
                 <div className="ps-two">
@@ -980,6 +1020,70 @@ export default function ProductionScheduler() {
                     <option>Critical</option>
                   </select>
                 </label>
+                {selectedJob.sourceType === "master" && (
+                  <section className="ps-master-fields" aria-label="Master Excel fields">
+                    <div className="ps-master-head">
+                      <h3>Master Excel Fields</h3>
+                      <span>Writes back to On Line Upcoming</span>
+                    </div>
+                    <label>
+                      Contract
+                      <textarea value={selectedJob.master.contract} onChange={(event) => updateMasterField(selectedJob.id, "contract", event.target.value)} />
+                    </label>
+                    <div className="ps-two">
+                      <label>
+                        Submittals Out
+                        <textarea value={selectedJob.master.submittalsOut} onChange={(event) => updateMasterField(selectedJob.id, "submittalsOut", event.target.value)} />
+                      </label>
+                      <label>
+                        Submittals Received
+                        <textarea value={selectedJob.master.submittalsReceived} onChange={(event) => updateMasterField(selectedJob.id, "submittalsReceived", event.target.value)} />
+                      </label>
+                    </div>
+                    <div className="ps-two">
+                      <label>
+                        DSA Status
+                        <textarea value={selectedJob.master.dsaStatus} onChange={(event) => updateMasterField(selectedJob.id, "dsaStatus", event.target.value)} />
+                      </label>
+                      <label>
+                        DSA Redlines
+                        <textarea value={selectedJob.master.dsaRedlines} onChange={(event) => updateMasterField(selectedJob.id, "dsaRedlines", event.target.value)} />
+                      </label>
+                    </div>
+                    <label>
+                      Est. DSA Approval Date
+                      <input value={selectedJob.master.dsaApproval} onChange={(event) => updateMasterField(selectedJob.id, "dsaApproval", event.target.value)} />
+                    </label>
+                    <div className="ps-two">
+                      <label>
+                        Inspector
+                        <input value={selectedJob.master.inspector} onChange={(event) => updateMasterField(selectedJob.id, "inspector", event.target.value)} />
+                      </label>
+                      <label>
+                        Job Card
+                        <input value={selectedJob.master.jobCard} onChange={(event) => updateMasterField(selectedJob.id, "jobCard", event.target.value)} />
+                      </label>
+                    </div>
+                    <div className="ps-two">
+                      <label>
+                        Lab
+                        <input value={selectedJob.master.lab} onChange={(event) => updateMasterField(selectedJob.id, "lab", event.target.value)} />
+                      </label>
+                      <label>
+                        Factory Subcontract Status
+                        <textarea value={selectedJob.master.subcontractStatus} onChange={(event) => updateMasterField(selectedJob.id, "subcontractStatus", event.target.value)} />
+                      </label>
+                    </div>
+                    <label>
+                      Open Items
+                      <textarea value={selectedJob.master.openItems} onChange={(event) => updateMasterField(selectedJob.id, "openItems", event.target.value)} />
+                    </label>
+                    <label>
+                      PM Update
+                      <textarea value={selectedJob.master.pmUpdate} onChange={(event) => updateMasterField(selectedJob.id, "pmUpdate", event.target.value)} />
+                    </label>
+                  </section>
+                )}
                 <fieldset className="ps-readiness">
                   <legend>Production readiness</legend>
                   {[
@@ -1004,7 +1108,22 @@ export default function ProductionScheduler() {
                 </fieldset>
                 <label>
                   Notes
-                  <textarea value={selectedJob.notes} onChange={(event) => updateJob(selectedJob.id, { notes: event.target.value })} />
+                  <textarea
+                    value={selectedJob.notes}
+                    onChange={(event) =>
+                      updateJob(selectedJob.id, {
+                        notes: event.target.value,
+                        master:
+                          selectedJob.sourceType === "master"
+                            ? {
+                                ...selectedJob.master,
+                                openItems: event.target.value.split(/\n\nPM Update:\s*/)[0] || "",
+                                pmUpdate: event.target.value.split(/\n\nPM Update:\s*/)[1] || selectedJob.master.pmUpdate,
+                              }
+                            : selectedJob.master,
+                      })
+                    }
+                  />
                 </label>
                 <div className="ps-editor-actions">
                   <Button tone="quiet" onClick={duplicateSelected}>

@@ -192,6 +192,20 @@ function masterRowToJob(row, rowNumber, line) {
       permits: normalizeBool(cellValue(row, MASTER_COLUMNS.dsaStatus)),
       inspections: Boolean(cleanText(cellValue(row, MASTER_COLUMNS.inspector))),
     },
+    master: {
+      contract: cleanText(cellValue(row, MASTER_COLUMNS.contract)),
+      submittalsOut: cleanText(cellValue(row, MASTER_COLUMNS.submittalsOut)),
+      submittalsReceived: cleanText(cellValue(row, MASTER_COLUMNS.submittalsReceived)),
+      dsaStatus: cleanText(cellValue(row, MASTER_COLUMNS.dsaStatus)),
+      dsaRedlines: cleanText(cellValue(row, MASTER_COLUMNS.dsaRedlines)),
+      dsaApproval: cleanText(cellValue(row, MASTER_COLUMNS.dsaApproval)),
+      inspector: cleanText(cellValue(row, MASTER_COLUMNS.inspector)),
+      jobCard: cleanText(cellValue(row, MASTER_COLUMNS.jobCard)),
+      lab: cleanText(cellValue(row, MASTER_COLUMNS.lab)),
+      subcontractStatus: cleanText(cellValue(row, MASTER_COLUMNS.subcontractStatus)),
+      openItems,
+      pmUpdate,
+    },
     notes: [openItems, pmUpdate].filter(Boolean).join("\n\nPM Update: "),
   };
 }
@@ -306,14 +320,25 @@ function writeMasterJobs(workbook, jobs) {
     if (job.sourceType === "master" && Number(job.sourceRow)) {
       const rowNumber = Number(job.sourceRow);
       const { openItems, pmUpdate } = splitNotes(job.notes);
+      const master = job.master || {};
       setCell(sheet, rowNumber, MASTER_COLUMNS.jobNumber, job.jobNumber || job.id.replace(/^master-/, ""));
       setCell(sheet, rowNumber, MASTER_COLUMNS.name, job.name);
       setCell(sheet, rowNumber, MASTER_COLUMNS.client, job.client);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.contract, master.contract);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.submittalsOut, master.submittalsOut);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.submittalsReceived, master.submittalsReceived);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.dsaStatus, master.dsaStatus);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.dsaRedlines, master.dsaRedlines);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.dsaApproval, master.dsaApproval);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.inspector, master.inspector);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.jobCard, master.jobCard);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.lab, master.lab);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.subcontractStatus, master.subcontractStatus);
       setCell(sheet, rowNumber, MASTER_COLUMNS.topset, job.start);
       setCell(sheet, rowNumber, MASTER_COLUMNS.shipping, job.end);
       setCell(sheet, rowNumber, MASTER_COLUMNS.set, job.due);
-      setCell(sheet, rowNumber, MASTER_COLUMNS.openItems, openItems);
-      setCell(sheet, rowNumber, MASTER_COLUMNS.pmUpdate, pmUpdate);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.openItems, master.openItems ?? openItems);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.pmUpdate, master.pmUpdate ?? pmUpdate);
       updated += 1;
     } else {
       additions.push(jobToSimpleRow(job));

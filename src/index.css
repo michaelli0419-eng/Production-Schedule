@@ -228,6 +228,12 @@ body {
   overflow: hidden;
 }
 
+.ps-line-header-spacer {
+  border-bottom: 2px solid #334155;
+  background: #162033;
+  flex-shrink: 0;
+}
+
 .ps-line-label {
   height: 76px;           /* must equal ROW_H */
   padding: 10px 14px;

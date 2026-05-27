@@ -820,7 +820,8 @@ export default function ProductionScheduler() {
         {/* Gantt Board */}
         <section className="ps-board" aria-label="Four line schedule">
           {/* Line labels (fixed left column) */}
-          <div className="ps-line-labels" style={{ paddingTop: HEADER_H }}>
+          <div className="ps-line-labels">
+            <div className="ps-line-header-spacer" style={{ height: HEADER_H }} />
             {LINES.map((line) => {
               const util = lineUtilization.find((u) => u.line === line.id);
               return (

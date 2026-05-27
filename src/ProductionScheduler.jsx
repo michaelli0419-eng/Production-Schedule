@@ -13,6 +13,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const MS_PER_DAY = 86400000;
 const HEADER_H = 58;
 const ROW_H = 76;
+const EXCEL_API_URL = "http://127.0.0.1:5174";
 const STATUS_CONFIG = {
   forecast: { label: "Forecast", color: "#64748b", bg: "#f1f5f9" },
   approved: { label: "Approved", color: "#2563eb", bg: "#dbeafe" },
@@ -309,6 +310,12 @@ export default function ProductionScheduler() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [lineFilter, setLineFilter] = useState("all");
   const [dayPx, setDayPx] = useState(4);
+  const [excelSync, setExcelSync] = useState({
+    connected: false,
+    busy: false,
+    lastSyncedAt: "",
+    message: "Excel sync not connected",
+  });
   const gridRef = useRef(null);
   const fileRef = useRef(null);
   const dragRef = useRef(null);
@@ -431,6 +438,65 @@ export default function ProductionScheduler() {
   function showToast(message) {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
+  }
+
+  async function syncFromExcel() {
+    setExcelSync((current) => ({ ...current, busy: true, message: "Reading Excel..." }));
+    try {
+      const response = await fetch(`${EXCEL_API_URL}/api/jobs`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Excel sync failed");
+      const imported = payload.jobs.map(normalizeJob);
+      setJobs(imported);
+      setSelectedId(imported[0]?.id || null);
+      setExcelSync({
+        connected: true,
+        busy: false,
+        lastSyncedAt: payload.syncedAt,
+        message: `Loaded ${imported.length} jobs from Excel`,
+      });
+      showToast("Synced from Excel");
+    } catch (error) {
+      setExcelSync({
+        connected: false,
+        busy: false,
+        lastSyncedAt: "",
+        message: error.message.includes("fetch")
+          ? "Start Excel sync server with npm run dev:excel"
+          : error.message,
+      });
+      showToast("Excel sync unavailable");
+    }
+  }
+
+  async function saveToExcel() {
+    setExcelSync((current) => ({ ...current, busy: true, message: "Saving Excel..." }));
+    try {
+      const response = await fetch(`${EXCEL_API_URL}/api/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobs }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Excel save failed");
+      setExcelSync({
+        connected: true,
+        busy: false,
+        lastSyncedAt: payload.syncedAt,
+        message: `Saved ${payload.saved} jobs to Excel`,
+      });
+      showToast("Saved to Excel");
+    } catch (error) {
+      setExcelSync({
+        connected: false,
+        busy: false,
+        lastSyncedAt: "",
+        message: error.message.includes("fetch")
+          ? "Start Excel sync server with npm run dev:excel"
+          : error.message,
+      });
+      showToast("Excel save failed");
+    }
   }
 
   function dateToX(dateStr) {
@@ -641,6 +707,12 @@ export default function ProductionScheduler() {
           <Button tone="quiet" onClick={() => fileRef.current?.click()}>
             Import CSV
           </Button>
+          <Button tone="quiet" onClick={syncFromExcel} disabled={excelSync.busy}>
+            Sync Excel
+          </Button>
+          <Button tone="quiet" onClick={saveToExcel} disabled={excelSync.busy}>
+            Save Excel
+          </Button>
           <Button tone="dark" onClick={exportCSV}>
             Export
           </Button>
@@ -679,6 +751,10 @@ export default function ProductionScheduler() {
           Zoom
           <input min="2" max="8" type="range" value={dayPx} onChange={(event) => setDayPx(Number(event.target.value))} />
         </label>
+        <div className={`ps-sync-status ${excelSync.connected ? "is-connected" : ""}`}>
+          <strong>{excelSync.connected ? "Excel connected" : "Excel offline"}</strong>
+          <span>{excelSync.message}</span>
+        </div>
       </section>
 
       <div className="ps-workspace">

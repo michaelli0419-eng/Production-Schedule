@@ -296,6 +296,29 @@ function readinessScore(job) {
   return Math.round((values.filter(Boolean).length / values.length) * 100);
 }
 
+function displayDate(dateStr) {
+  if (!dateStr) return "Not set";
+  const date = toDate(dateStr);
+  if (Number.isNaN(date.valueOf())) return dateStr;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function dateFieldHelp(job) {
+  if (job?.sourceType === "master") {
+    return {
+      start: "Excel column: Topset Date",
+      end: "Excel column: Shipping Date",
+      due: "Excel column: Set Date",
+    };
+  }
+
+  return {
+    start: "Production work begins",
+    end: "Planned ship date",
+    due: "Site set or customer need date",
+  };
+}
+
 export default function ProductionScheduler() {
   const [jobs, setJobs] = useState(() => {
     try {
@@ -345,6 +368,7 @@ export default function ProductionScheduler() {
   const scheduledJobs = visibleJobs.filter((job) => LINE_IDS.includes(job.line));
   const queuedJobs = visibleJobs.filter((job) => job.line === QUEUE);
   const selectedJob = jobs.find((job) => job.id === selectedId) || null;
+  const selectedDateHelp = dateFieldHelp(selectedJob);
 
   useEffect(() => {
     dragRef.current = dragging;
@@ -410,7 +434,7 @@ export default function ProductionScheduler() {
     const riskList = [];
     jobs.forEach((job) => {
       if (LINE_IDS.includes(job.line) && job.end > job.due) {
-        riskList.push({ type: "Late", job, detail: `${dateDiffDays(job.due, job.end)} days past due date` });
+        riskList.push({ type: "Late", job, detail: `${dateDiffDays(job.due, job.end)} days past set date` });
       }
       if (job.status === "hold" || job.status === "delayed") {
         riskList.push({ type: job.status === "hold" ? "Hold" : "Delay", job, detail: job.notes || "Needs review" });
@@ -828,11 +852,11 @@ export default function ProductionScheduler() {
                       width,
                       background: job.color,
                     }}
-                    title={`${job.name}\n${job.start} to ${job.end}\n${job.modules} modules`}
+                    title={`${job.name}\nTopset: ${displayDate(job.start)}\nShipping: ${displayDate(job.end)}\nSet: ${displayDate(job.due)}\n${job.modules} modules`}
                     onMouseDown={(event) => startDrag(event, job.id)}
                   >
                     <span>{job.name}</span>
-                    <small>{job.modules} modules · {job.progress}%</small>
+                    <small>Ship {displayDate(job.end)} · {job.modules} modules</small>
                     <b style={{ width: `${job.progress}%` }} />
                     {(hasOverlap || late) && <em>{hasOverlap ? "!" : "Late"}</em>}
                   </div>
@@ -886,26 +910,53 @@ export default function ProductionScheduler() {
                     </select>
                   </label>
                 </div>
-                <div className="ps-two">
-                  <label>
-                    Start
-                    <input type="date" value={selectedJob.start} onChange={(event) => updateJob(selectedJob.id, { start: event.target.value })} />
-                  </label>
-                  <label>
-                    End
-                    <input type="date" value={selectedJob.end} onChange={(event) => updateJob(selectedJob.id, { end: event.target.value })} />
-                  </label>
-                </div>
-                <div className="ps-two">
-                  <label>
-                    Due
-                    <input type="date" value={selectedJob.due} onChange={(event) => updateJob(selectedJob.id, { due: event.target.value })} />
-                  </label>
-                  <label>
-                    Color
-                    <input type="color" value={selectedJob.color} onChange={(event) => updateJob(selectedJob.id, { color: event.target.value })} />
-                  </label>
-                </div>
+                <section className="ps-date-block" aria-label="Production dates">
+                  <div className="ps-date-block-head">
+                    <h3>Production Dates</h3>
+                    <span>{selectedJob.sourceType === "master" ? "From master Excel" : "Website schedule"}</span>
+                  </div>
+                  <div className="ps-date-grid">
+                    <label>
+                      <span>
+                        Topset Date
+                        <small>{selectedDateHelp.start}</small>
+                      </span>
+                      <input type="date" value={selectedJob.start} onChange={(event) => updateJob(selectedJob.id, { start: event.target.value })} />
+                    </label>
+                    <label>
+                      <span>
+                        Shipping Date
+                        <small>{selectedDateHelp.end}</small>
+                      </span>
+                      <input type="date" value={selectedJob.end} onChange={(event) => updateJob(selectedJob.id, { end: event.target.value })} />
+                    </label>
+                    <label>
+                      <span>
+                        Set Date
+                        <small>{selectedDateHelp.due}</small>
+                      </span>
+                      <input type="date" value={selectedJob.due} onChange={(event) => updateJob(selectedJob.id, { due: event.target.value })} />
+                    </label>
+                  </div>
+                  <div className="ps-date-summary">
+                    <div>
+                      <strong>{dateDiffDays(selectedJob.start, selectedJob.end)}</strong>
+                      <span>factory days</span>
+                    </div>
+                    <div>
+                      <strong>
+                        {selectedJob.end > selectedJob.due
+                          ? `${dateDiffDays(selectedJob.due, selectedJob.end)} late`
+                          : `${dateDiffDays(selectedJob.end, selectedJob.due)} buffer`}
+                      </strong>
+                      <span>ship to set</span>
+                    </div>
+                  </div>
+                </section>
+                <label>
+                  Color
+                  <input type="color" value={selectedJob.color} onChange={(event) => updateJob(selectedJob.id, { color: event.target.value })} />
+                </label>
                 <div className="ps-three">
                   <label>
                     Modules

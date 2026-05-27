@@ -518,6 +518,94 @@ button {
   font-weight: 800;
 }
 
+.ps-date-block {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.ps-date-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ps-date-block h3 {
+  margin: 0;
+  color: #172033;
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.ps-date-block-head span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ps-date-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.ps-date-grid label {
+  display: grid;
+  grid-template-columns: minmax(98px, 1fr) 138px;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+}
+
+.ps-date-grid label > span {
+  display: grid;
+  gap: 2px;
+  color: #172033;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ps-date-grid small {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ps-date-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ps-date-summary div {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.ps-date-summary strong,
+.ps-date-summary span {
+  display: block;
+}
+
+.ps-date-summary strong {
+  color: #172033;
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.ps-date-summary span {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .ps-two,
 .ps-three {
   display: grid;

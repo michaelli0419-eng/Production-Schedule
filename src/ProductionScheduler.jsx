@@ -563,6 +563,7 @@ export default function ProductionScheduler() {
   function startDrag(event, jobId) {
     event.preventDefault();
     event.stopPropagation();
+    setSelectedId(jobId);
     const job = jobs.find((item) => item.id === jobId);
     setDragging({ jobId, startX: getX(event.clientX), origStart: job.start, origEnd: job.end });
   }

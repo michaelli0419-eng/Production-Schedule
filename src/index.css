@@ -334,20 +334,6 @@ body {
   letter-spacing: 0.03em;
 }
 
-/* Sticky header background strip */
-.ps-timeline::before {
-  content: '';
-  position: sticky;
-  top: 0;
-  left: 0;
-  display: block;
-  height: 72px;
-  background: #fff;
-  border-bottom: 2px solid #e2e8f0;
-  z-index: 5;
-  pointer-events: none;
-}
-
 /* ── Row backgrounds ──────────────────────────────────────────────────────── */
 .ps-row {
   position: absolute;

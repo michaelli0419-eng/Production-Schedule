@@ -477,12 +477,12 @@ export default function ProductionScheduler() {
     };
   }, [jobs, totalDays]);
 
-  function showToast(message) {
+  const showToast = useCallback((message) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
-  }
+  }, []);
 
-  async function syncFromExcel() {
+  const syncFromExcel = useCallback(async ({ quiet = false } = {}) => {
     setExcelSync((current) => ({ ...current, busy: true, message: "Reading Excel..." }));
     try {
       const response = await fetch(`${EXCEL_API_URL}/api/jobs`);
@@ -495,9 +495,9 @@ export default function ProductionScheduler() {
         connected: true,
         busy: false,
         lastSyncedAt: payload.syncedAt,
-        message: `Loaded ${imported.length} jobs from Excel`,
+        message: `Loaded ${imported.length} jobs from master Excel`,
       });
-      showToast("Synced from Excel");
+      if (!quiet) showToast("Synced from Excel");
     } catch (error) {
       setExcelSync({
         connected: false,
@@ -507,9 +507,19 @@ export default function ProductionScheduler() {
           ? "Start Excel sync server with npm run dev:excel"
           : error.message,
       });
-      showToast("Excel sync unavailable");
+      if (!quiet) showToast("Excel sync unavailable");
     }
-  }
+  }, [showToast]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      syncFromExcel({ quiet: true });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [syncFromExcel]);
 
   async function saveToExcel() {
     setExcelSync((current) => ({ ...current, busy: true, message: "Saving Excel..." }));

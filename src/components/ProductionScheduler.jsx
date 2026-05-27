@@ -851,7 +851,6 @@ export default function ProductionScheduler() {
               return (
                 <div className="ps-line-label" key={line.id}>
                   <strong>{line.name}</strong>
-                  <span>{line.focus}</span>
                   <small>{util.utilization}% used · {util.modules} modules</small>
                   <div className="ps-meter">
                     <i style={{ width: `${util.utilization}%` }} />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJobs } from "../hooks/useJobs.js";
 
-const YEAR = 2026;
+const FALLBACK_YEAR = 2026;
 const LINES = [
   { id: "L1", name: "Line 1", focus: "Pods + classrooms" },
   { id: "L2", name: "Line 2", focus: "Classroom wings" },
@@ -122,10 +122,6 @@ function daysInMonth(year, month) {
   return new Date(year, month + 1, 0).getDate();
 }
 
-function totalYearDays() {
-  return MONTHS.reduce((sum, _m, i) => sum + daysInMonth(YEAR, i), 0);
-}
-
 function toDate(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d);
@@ -151,6 +147,10 @@ function rangesOverlap(aStart, aEnd, bStart, bEnd) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function diffDays(start, end) {
+  return Math.round((end - start) / MS_PER_DAY);
 }
 
 function normalizeJob(job, index) {
@@ -297,16 +297,15 @@ function dateFieldHelp(job) {
 }
 
 // ── Week tick data for the timeline header ──────────────────────────────────
-function buildWeekTicks(dayPx) {
-  const yearStart = new Date(YEAR, 0, 1);
+function buildWeekTicks(dayPx, timelineStart, timelineEnd) {
   const ticks = [];
-  let cursor = new Date(yearStart);
+  const cursor = new Date(timelineStart);
   // align to first Monday on or after Jan 1
   const dow = cursor.getDay(); // 0=Sun
   if (dow !== 1) cursor.setDate(cursor.getDate() + ((1 - dow + 7) % 7));
   let weekNum = 1;
-  while (cursor.getFullYear() === YEAR) {
-    const dayOffset = Math.floor((cursor - yearStart) / MS_PER_DAY);
+  while (cursor <= timelineEnd) {
+    const dayOffset = diffDays(timelineStart, cursor);
     ticks.push({ x: dayOffset * dayPx, label: `W${weekNum}` });
     cursor.setDate(cursor.getDate() + 7);
     weekNum += 1;
@@ -343,21 +342,37 @@ export default function ProductionScheduler() {
   const fileRef = useRef(null);
   const dragRef = useRef(null);
 
-  const totalDays = totalYearDays();
-  const totalWidth = totalDays * dayPx;
   const today = formatDate(new Date());
+  const timelineRange = useMemo(() => {
+    const validDates = [today, ...jobs.flatMap((job) => [job.start, job.end, job.due])]
+      .map((dateStr) => toDate(dateStr))
+      .filter((date) => !Number.isNaN(date.valueOf()));
+
+    const minDate = validDates.length ? new Date(Math.min(...validDates)) : new Date(FALLBACK_YEAR, 0, 1);
+    const maxDate = validDates.length ? new Date(Math.max(...validDates)) : new Date(FALLBACK_YEAR, 11, 31);
+    const start = new Date(minDate.getFullYear() - 1, 0, 1);
+    const end = new Date(maxDate.getFullYear() + 1, 11, 31);
+
+    return {
+      start,
+      end,
+      startYear: start.getFullYear(),
+      endYear: end.getFullYear(),
+      totalDays: diffDays(start, end) + 1,
+    };
+  }, [jobs, today]);
+  const { totalDays } = timelineRange;
+  const totalWidth = totalDays * dayPx;
 
   // ── Auto-scroll to today on mount ────────────────────────────────────────
   useEffect(() => {
-    if (!gridRef.current || !today.startsWith(String(YEAR))) return;
-    const yearStart = new Date(YEAR, 0, 1);
-    const dayOffset = Math.floor((toDate(today) - yearStart) / MS_PER_DAY);
+    if (!gridRef.current) return;
+    const dayOffset = diffDays(timelineRange.start, toDate(today));
     const todayPx = dayOffset * dayPx;
     // Center today in the visible area, offset by ~200px for context
     const containerW = gridRef.current.clientWidth;
     gridRef.current.scrollLeft = Math.max(0, todayPx - containerW / 2 + 100);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally run once on mount
+  }, [dayPx, timelineRange.start, today]);
 
   const visibleJobs = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -379,31 +394,41 @@ export default function ProductionScheduler() {
   }, [dragging]);
 
   const monthTicks = useMemo(
-    () =>
-      MONTHS.reduce((ticks, label, i) => {
-        const prev = ticks[i - 1];
-        const x = prev ? prev.x + prev.width : 0;
-        const width = daysInMonth(YEAR, i) * dayPx;
-        return [...ticks, { label, x, width }];
-      }, []),
-    [dayPx],
+    () => {
+      const ticks = [];
+      let x = 0;
+      for (let year = timelineRange.startYear; year <= timelineRange.endYear; year += 1) {
+        for (let month = 0; month < 12; month += 1) {
+          const width = daysInMonth(year, month) * dayPx;
+          ticks.push({
+            label: `${MONTHS[month]} ${year}`,
+            x,
+            width,
+            isJanuary: month === 0,
+          });
+          x += width;
+        }
+      }
+      return ticks;
+    },
+    [dayPx, timelineRange.endYear, timelineRange.startYear],
   );
 
   // Week ticks — only show label when there's enough space (>=28px apart)
   const weekTicks = useMemo(() => {
-    const ticks = buildWeekTicks(dayPx);
+    const ticks = buildWeekTicks(dayPx, timelineRange.start, timelineRange.end);
     const minGap = 28;
     return ticks.filter((_t, i) => {
       if (i === 0) return true;
       return (ticks[i].x - ticks[i - 1].x) >= minGap;
     });
-  }, [dayPx]);
+  }, [dayPx, timelineRange.end, timelineRange.start]);
 
   const todayX = useMemo(() => {
-    if (!today.startsWith(String(YEAR))) return null;
-    const diff = Math.floor((toDate(today) - new Date(YEAR, 0, 1)) / MS_PER_DAY);
+    const diff = diffDays(timelineRange.start, toDate(today));
+    if (diff < 0 || diff > totalDays) return null;
     return clamp(diff, 0, totalDays - 1) * dayPx;
-  }, [dayPx, today, totalDays]);
+  }, [dayPx, today, timelineRange.start, totalDays]);
 
   const overlaps = useMemo(() => {
     const result = [];
@@ -543,14 +568,14 @@ export default function ProductionScheduler() {
   }
 
   function dateToX(dateStr) {
-    const diff = Math.floor((toDate(dateStr) - new Date(YEAR, 0, 1)) / MS_PER_DAY);
+    const diff = diffDays(timelineRange.start, toDate(dateStr));
     return clamp(diff, 0, totalDays - 1) * dayPx;
   }
 
   const xToDate = useCallback((x) => {
     const days = clamp(Math.round(x / dayPx), 0, totalDays - 1);
-    return formatDate(new Date(new Date(YEAR, 0, 1).getTime() + days * MS_PER_DAY));
-  }, [dayPx, totalDays]);
+    return formatDate(new Date(timelineRange.start.getTime() + days * MS_PER_DAY));
+  }, [dayPx, timelineRange.start, totalDays]);
 
   const getX = useCallback((clientX) => {
     if (!gridRef.current) return 0;
@@ -628,9 +653,8 @@ export default function ProductionScheduler() {
   }
 
   function scrollToToday() {
-    if (!gridRef.current || !today.startsWith(String(YEAR))) return;
-    const yearStart = new Date(YEAR, 0, 1);
-    const dayOffset = Math.floor((toDate(today) - yearStart) / MS_PER_DAY);
+    if (!gridRef.current) return;
+    const dayOffset = diffDays(timelineRange.start, toDate(today));
     const todayPx = dayOffset * dayPx;
     const containerW = gridRef.current.clientWidth;
     gridRef.current.scrollTo({ left: Math.max(0, todayPx - containerW / 2 + 100), behavior: "smooth" });

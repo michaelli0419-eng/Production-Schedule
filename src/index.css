@@ -110,6 +110,16 @@ body {
   padding: 8px 14px 9px;
   background: #fff;
   gap: 1px;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.ps-kpi:not(:disabled):hover { background: #f8fafc; }
+.ps-kpi:disabled { cursor: default; }
+.ps-kpi.is-active {
+  background: #eff6ff;
+  box-shadow: inset 0 -2px 0 #2563eb;
 }
 .ps-kpi > span  { font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.07em; }
 .ps-kpi > strong{ font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.25; }
@@ -117,6 +127,88 @@ body {
 
 .ps-kpi-green { border-top: 3px solid #059669; }
 .ps-kpi-amber { border-top: 3px solid #d97706; }
+
+.ps-summary-list {
+  flex-shrink: 0;
+  border-bottom: 1px solid #dbe3ec;
+  background: #f8fafc;
+}
+
+.ps-summary-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 8px;
+}
+
+.ps-summary-list-head strong,
+.ps-summary-list-head span {
+  display: block;
+}
+
+.ps-summary-list-head strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.ps-summary-list-head span {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.ps-summary-list-head button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ps-summary-items {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 14px 12px;
+}
+
+.ps-summary-items button {
+  display: grid;
+  min-width: 240px;
+  max-width: 320px;
+  gap: 3px;
+  border: 1px solid #dbe3ec;
+  border-radius: 7px;
+  padding: 9px 10px;
+  background: #fff;
+  color: #172033;
+  text-align: left;
+}
+
+.ps-summary-items button:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.ps-summary-items b,
+.ps-summary-items span,
+.ps-summary-items small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-summary-items b {
+  font-size: 12px;
+}
+
+.ps-summary-items span,
+.ps-summary-items small {
+  color: #64748b;
+  font-size: 11px;
+}
 
 /* ── Controls Bar ─────────────────────────────────────────────────────────── */
 .ps-controls {

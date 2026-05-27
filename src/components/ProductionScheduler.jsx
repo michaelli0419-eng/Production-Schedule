@@ -250,13 +250,18 @@ function Button({ children, tone = "default", ...props }) {
   );
 }
 
-function Kpi({ label, value, sublabel, tone = "neutral" }) {
+function Kpi({ label, value, sublabel, tone = "neutral", onClick, active = false }) {
   return (
-    <section className={`ps-kpi ps-kpi-${tone}`}>
+    <button
+      className={`ps-kpi ps-kpi-${tone} ${active ? "is-active" : ""}`}
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+    >
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{sublabel}</small>
-    </section>
+    </button>
   );
 }
 
@@ -331,6 +336,7 @@ export default function ProductionScheduler() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [lineFilter, setLineFilter] = useState("all");
+  const [summaryList, setSummaryList] = useState(null);
   const [dayPx, setDayPx] = useState(4);
   const [excelSync, setExcelSync] = useState({
     connected: false,
@@ -501,6 +507,24 @@ export default function ProductionScheduler() {
       utilization: `${Math.round(scheduled.reduce((sum, j) => sum + dateDiffDays(j.start, j.end), 0) / (totalDays * LINE_IDS.length) * 100)}%`,
     };
   }, [jobs, totalDays]);
+
+  const summaryJobs = useMemo(() => {
+    if (!summaryList) return [];
+
+    if (summaryList === "production") return jobs.filter((j) => j.status === "production");
+    if (summaryList === "queued") return jobs.filter((j) => j.line === QUEUE);
+    if (summaryList === "jobs") return jobs;
+    if (summaryList === "readiness") return jobs.filter((j) => readinessScore(j) < 100);
+
+    return [];
+  }, [jobs, summaryList]);
+
+  const summaryTitle = {
+    jobs: "All Jobs",
+    production: "In Production",
+    queued: "Queued Jobs",
+    readiness: "Readiness Items",
+  }[summaryList];
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -793,12 +817,45 @@ export default function ProductionScheduler() {
 
       {/* ── KPI Bar ─────────────────────────────────────────────────────── */}
       <section className="ps-kpis">
-        <Kpi label="Jobs" value={kpis.jobs} sublabel={`${kpis.modules} total modules`} />
-        <Kpi label="In Production" value={kpis.production} sublabel="active line work" tone="green" />
+        <Kpi label="Jobs" value={kpis.jobs} sublabel={`${kpis.modules} total modules`} onClick={() => setSummaryList("jobs")} active={summaryList === "jobs"} />
+        <Kpi label="In Production" value={kpis.production} sublabel="active line work" tone="green" onClick={() => setSummaryList("production")} active={summaryList === "production"} />
         <Kpi label="Plant Utilization" value={kpis.utilization} sublabel="year view across 4 lines" />
-        <Kpi label="Avg. Readiness" value={kpis.readiness} sublabel="drawings, material, permits, QA" />
-        <Kpi label="Queued" value={kpis.queued} sublabel="not assigned to a line" tone="amber" />
+        <Kpi label="Avg. Readiness" value={kpis.readiness} sublabel="drawings, material, permits, QA" onClick={() => setSummaryList("readiness")} active={summaryList === "readiness"} />
+        <Kpi label="Queued" value={kpis.queued} sublabel="not assigned to a line" tone="amber" onClick={() => setSummaryList("queued")} active={summaryList === "queued"} />
       </section>
+
+      {summaryList && (
+        <section className="ps-summary-list" aria-label={`${summaryTitle} list`}>
+          <div className="ps-summary-list-head">
+            <div>
+              <strong>{summaryTitle}</strong>
+              <span>{summaryJobs.length} jobs</span>
+            </div>
+            <button type="button" onClick={() => setSummaryList(null)}>Close</button>
+          </div>
+          <div className="ps-summary-items">
+            {summaryJobs.length ? (
+              summaryJobs.map((job) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedId(job.id);
+                    setStatusFilter("all");
+                    setLineFilter("all");
+                  }}
+                >
+                  <b>{job.jobNumber ? `${job.jobNumber} · ` : ""}{job.name}</b>
+                  <span>{job.line} · {STATUS_CONFIG[job.status]?.label || job.status} · Ship {displayDate(job.end)}</span>
+                  {summaryList === "readiness" && <small>{readinessScore(job)}% ready</small>}
+                </button>
+              ))
+            ) : (
+              <p>No jobs in this summary.</p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── Controls ────────────────────────────────────────────────────── */}
       <section className="ps-controls" aria-label="Schedule controls">

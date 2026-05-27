@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 
 const LINES = ["L1", "L2", "L3", "L4"];
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -18,6 +18,44 @@ const JOB_COLORS = [
   { bg: "#EC4899", border: "#DB2777", text: "#fff", label: "Type F" },
 ];
 
+const STATUS_CONFIG = {
+  forecast: {
+    label: "Forecast",
+    color: "#64748B",
+    bg: "rgba(100,116,139,0.15)",
+  },
+  approved: {
+    label: "Approved",
+    color: "#3B82F6",
+    bg: "rgba(59,130,246,0.15)",
+  },
+  ready: {
+    label: "Ready",
+    color: "#10B981",
+    bg: "rgba(16,185,129,0.15)",
+  },
+  hold: {
+    label: "Material Hold",
+    color: "#F59E0B",
+    bg: "rgba(245,158,11,0.15)",
+  },
+  production: {
+    label: "In Production",
+    color: "#8B5CF6",
+    bg: "rgba(139,92,246,0.15)",
+  },
+  delayed: {
+    label: "Delayed",
+    color: "#EF4444",
+    bg: "rgba(239,68,68,0.15)",
+  },
+  complete: {
+    label: "Complete",
+    color: "#14B8A6",
+    bg: "rgba(20,184,166,0.15)",
+  },
+};
+
 let nextId = 1;
 function makeId() { return nextId++; }
 
@@ -33,13 +71,95 @@ function colToLabel(col) {
   return `${h}:00`;
 }
 
+function KPI({ label, value }) {
+  return (
+    <div
+      style={{
+        background: "#1E2330",
+        border: "1px solid #2D3748",
+        borderRadius: 10,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: "#64748B",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+
+      <div
+        style={{
+          fontSize: 24,
+          fontWeight: 700,
+          color: "#F1F5F9",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 export default function ProductionScheduler() {
-  const [jobs, setJobs] = useState([
-    { id: makeId(), line: 0, startCol: 0, span: 4, colorIdx: 0, name: "Job #101" },
-    { id: makeId(), line: 1, startCol: 2, span: 6, colorIdx: 1, name: "Job #202" },
-    { id: makeId(), line: 2, startCol: 8, span: 3, colorIdx: 2, name: "Job #303" },
-    { id: makeId(), line: 3, startCol: 5, span: 5, colorIdx: 3, name: "Job #404" },
-  ]);
+  const [jobs, setJobs] = useState(() => {
+    const saved = localStorage.getItem("production-jobs");
+
+    return saved
+      ? JSON.parse(saved)
+      : [
+          {
+            id: makeId(),
+            line: 0,
+            startCol: 0,
+            span: 4,
+            colorIdx: 0,
+            name: "LAUSD Project A",
+
+            status: "production",
+            customer: "LAUSD",
+            percentComplete: 35,
+            productionValue: 2400000,
+            targetShipDate: "2026-06-15",
+            notes: "Waiting final electrical release",
+          },
+
+          {
+            id: makeId(),
+            line: 1,
+            startCol: 5,
+            span: 6,
+            colorIdx: 1,
+            name: "San Diego Modular",
+
+            status: "hold",
+            customer: "San Diego USD",
+            percentComplete: 10,
+            productionValue: 1800000,
+            targetShipDate: "2026-06-28",
+            notes: "Material delay on switchgear",
+          },
+
+          {
+            id: makeId(),
+            line: 2,
+            startCol: 12,
+            span: 5,
+            colorIdx: 2,
+            name: "Charter School Phase 1",
+
+            status: "forecast",
+            customer: "Bright Future Academy",
+            percentComplete: 0,
+            productionValue: 3200000,
+            targetShipDate: "2026-07-10",
+            notes: "Pending contract execution",
+          },
+        ];
+  });
 
   const [dragging, setDragging] = useState(null); // { jobId, type: 'move'|'resize-left'|'resize-right', startX, origStartCol, origSpan }
   const [adding, setAdding] = useState(null); // { line, startCol, currentCol }
@@ -52,28 +172,112 @@ export default function ProductionScheduler() {
 
   const gridRef = useRef(null);
   const dragRef = useRef(null);
+  const addingRef = useRef(null);
+  const jobsRef = useRef(jobs);
+  const frameRef = useRef(null);
+  const pendingPointerRef = useRef(null);
   dragRef.current = dragging;
+  addingRef.current = adding;
+  jobsRef.current = jobs;
 
-  const getGridCol = useCallback((clientX) => {
-    if (!gridRef.current) return 0;
+  const conflictSummary = useMemo(() => {
+    const conflictJobIds = new Set();
+    const conflictPairs = [];
+    const jobById = new Map(jobs.map(j => [j.id, j]));
+    for (const line of LINES.map((_, idx) => idx)) {
+      const onLine = jobs
+        .filter(j => j.line === line)
+        .slice()
+        .sort((a, b) => a.startCol - b.startCol);
+
+      for (let i = 0; i < onLine.length; i++) {
+        const a = onLine[i];
+        const aEnd = a.startCol + a.span; // end is exclusive
+        for (let k = i + 1; k < onLine.length; k++) {
+          const b = onLine[k];
+          // Since sorted by startCol, once b starts at/after a ends, no further overlaps with a.
+          if (b.startCol >= aEnd) break;
+
+          const bEnd = b.startCol + b.span;
+          const overlaps = Math.max(a.startCol, b.startCol) < Math.min(aEnd, bEnd); // positive intersection
+          if (overlaps) {
+            conflictJobIds.add(a.id);
+            conflictJobIds.add(b.id);
+            const overlapStart = Math.max(a.startCol, b.startCol);
+            const overlapEnd = Math.min(aEnd, bEnd);
+            conflictPairs.push({
+              line,
+              aId: a.id,
+              bId: b.id,
+              overlapStartCol: overlapStart,
+              overlapSpan: overlapEnd - overlapStart,
+              aName: jobById.get(a.id)?.name ?? "Job",
+              bName: jobById.get(b.id)?.name ?? "Job",
+            });
+          }
+        }
+      }
+    }
+    return {
+      conflictJobIds,
+      conflictPairs,
+      conflictCount: conflictPairs.length,
+      conflictingJobCount: conflictJobIds.size,
+    };
+  }, [jobs]);
+
+  const kpis = useMemo(() => {
+    const totalSlots = LINES.length * TOTAL_COLS;
+
+    const usedSlots = jobs.reduce(
+      (sum, j) => sum + j.span,
+      0
+    );
+
+    const utilization = Math.round(
+      (usedSlots / totalSlots) * 100
+    );
+
+    const delayedProjects = jobs.filter(
+      j => j.status === "delayed"
+    ).length;
+
+    const materialHoldProjects = jobs.filter(
+      j => j.status === "hold"
+    ).length;
+
+    const activeProjects = jobs.filter(
+      j => j.status === "production"
+    ).length;
+
+    return {
+      utilization,
+      delayedProjects,
+      materialHoldProjects,
+      activeProjects,
+    };
+  }, [jobs]);
+
+  const getGridPosition = useCallback((clientX, clientY) => {
+    if (!gridRef.current) return { col: 0, line: 0 };
     const rect = gridRef.current.getBoundingClientRect();
     const x = clientX - rect.left;
-    return Math.max(0, Math.min(TOTAL_COLS - 1, Math.floor(x / COL_WIDTH)));
+    const y = clientY - rect.top;
+    return {
+      col: Math.max(0, Math.min(TOTAL_COLS - 1, Math.floor(x / COL_WIDTH))),
+      line: Math.max(0, Math.min(LINES.length - 1, Math.floor(y / ROW_HEIGHT))),
+    };
   }, []);
 
   // --- Mouse handlers ---
   const onGridMouseDown = useCallback((e) => {
     if (e.button !== 0) return;
     if (dragging) return;
-    const col = getGridCol(e.clientX);
-    const rect = gridRef.current.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    const lineIdx = Math.floor(y / ROW_HEIGHT);
-    if (lineIdx < 0 || lineIdx >= LINES.length) return;
+    const { col, line } = getGridPosition(e.clientX, e.clientY);
 
     // Check if clicking on a job
     const clickedJob = jobs.find(j =>
-      j.line === lineIdx && col >= j.startCol && col < j.startCol + j.span
+      j.line === line && col >= j.startCol && col < j.startCol + j.span
     );
     if (clickedJob) {
       setSelectedJob(clickedJob.id);
@@ -81,55 +285,78 @@ export default function ProductionScheduler() {
     }
 
     setSelectedJob(null);
-    setAdding({ line: lineIdx, startCol: col, currentCol: col });
+    setAdding({ line, startCol: col, currentCol: col, startedAtX: e.clientX, startedAtY: e.clientY, hasDragged: false });
     e.preventDefault();
-  }, [dragging, jobs, getGridCol]);
+  }, [dragging, jobs, getGridPosition]);
 
-  const onMouseMove = useCallback((e) => {
-    if (dragRef.current) {
-      const d = dragRef.current;
-      const col = getGridCol(e.clientX);
-      const delta = col - d.startCol;
+  const flushPointerMove = useCallback(() => {
+    frameRef.current = null;
+    const evt = pendingPointerRef.current;
+    if (!evt) return;
+    pendingPointerRef.current = null;
+
+    const currentDrag = dragRef.current;
+    if (currentDrag) {
+      const { col, line } = getGridPosition(evt.clientX, evt.clientY);
+      const delta = col - currentDrag.startCol;
+      const lineDelta = line - currentDrag.startLine;
 
       setJobs(prev => prev.map(j => {
-        if (j.id !== d.jobId) return j;
-        if (d.type === "move") {
-          const newStart = Math.max(0, Math.min(TOTAL_COLS - j.span, d.origStartCol + delta));
-          return { ...j, startCol: newStart };
+        if (j.id !== currentDrag.jobId) return j;
+        if (currentDrag.type === "move") {
+          const newStart = Math.max(0, Math.min(TOTAL_COLS - j.span, currentDrag.origStartCol + delta));
+          const newLine = Math.max(0, Math.min(LINES.length - 1, currentDrag.origLine + lineDelta));
+          return { ...j, startCol: newStart, line: newLine };
         }
-        if (d.type === "resize-right") {
-          const newSpan = Math.max(1, Math.min(TOTAL_COLS - j.startCol, d.origSpan + delta));
+        if (currentDrag.type === "resize-right") {
+          const newSpan = Math.max(1, Math.min(TOTAL_COLS - j.startCol, currentDrag.origSpan + delta));
           return { ...j, span: newSpan };
         }
-        if (d.type === "resize-left") {
-          const newStart = Math.max(0, Math.min(d.origStartCol + d.origSpan - 1, d.origStartCol + delta));
-          const newSpan = d.origSpan - (newStart - d.origStartCol);
+        if (currentDrag.type === "resize-left") {
+          const newStart = Math.max(0, Math.min(currentDrag.origStartCol + currentDrag.origSpan - 1, currentDrag.origStartCol + delta));
+          const newSpan = currentDrag.origSpan - (newStart - currentDrag.origStartCol);
           return { ...j, startCol: newStart, span: Math.max(1, newSpan) };
         }
         return j;
       }));
     }
-    if (adding) {
-      const col = getGridCol(e.clientX);
-      setAdding(a => ({ ...a, currentCol: col }));
-    }
-  }, [getGridCol, adding]);
 
-  const onMouseUp = useCallback((e) => {
+    const currentAdding = addingRef.current;
+    if (currentAdding) {
+      const { col } = getGridPosition(evt.clientX, evt.clientY);
+      const movedEnough = Math.abs(evt.clientX - currentAdding.startedAtX) > 4 || Math.abs(evt.clientY - currentAdding.startedAtY) > 4;
+      setAdding(a => ({ ...a, currentCol: col, hasDragged: a.hasDragged || movedEnough }));
+    }
+  }, [getGridPosition]);
+
+  const onMouseMove = useCallback((e) => {
+    if (!dragRef.current && !addingRef.current) return;
+    pendingPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
+    if (frameRef.current == null) {
+      frameRef.current = window.requestAnimationFrame(flushPointerMove);
+    }
+  }, [flushPointerMove]);
+
+  const onMouseUp = useCallback(() => {
     if (dragRef.current) {
       setDragging(null);
       return;
     }
-    if (adding) {
-      const startCol = Math.min(adding.startCol, adding.currentCol);
-      const span = Math.max(1, Math.abs(adding.currentCol - adding.startCol) + 1);
-      setPendingAdd({ line: adding.line, startCol, span });
+    const currentAdding = addingRef.current;
+    if (currentAdding) {
+      if (!currentAdding.hasDragged) {
+        setAdding(null);
+        return;
+      }
+      const startCol = Math.min(currentAdding.startCol, currentAdding.currentCol);
+      const span = Math.max(1, Math.abs(currentAdding.currentCol - currentAdding.startCol) + 1);
+      setPendingAdd({ line: currentAdding.line, startCol, span });
       setNewJobName(`Job #${100 + Math.floor(Math.random() * 900)}`);
       setNewJobColor(Math.floor(Math.random() * JOB_COLORS.length));
       setModal(true);
       setAdding(null);
     }
-  }, [adding]);
+  }, []);
 
   useEffect(() => {
     window.addEventListener("mousemove", onMouseMove);
@@ -137,15 +364,25 @@ export default function ProductionScheduler() {
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      if (frameRef.current != null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
     };
   }, [onMouseMove, onMouseUp]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "production-jobs",
+      JSON.stringify(jobs)
+    );
+  }, [jobs]);
 
   const startDrag = (e, jobId, type) => {
     e.stopPropagation();
     e.preventDefault();
-    const job = jobs.find(j => j.id === jobId);
-    const col = getGridCol(e.clientX);
-    setDragging({ jobId, type, startCol: col, origStartCol: job.startCol, origSpan: job.span });
+    const job = jobsRef.current.find(j => j.id === jobId);
+    const { col, line } = getGridPosition(e.clientX, e.clientY);
+    setDragging({ jobId, type, startCol: col, startLine: line, origStartCol: job.startCol, origLine: job.line, origSpan: job.span });
   };
 
   const confirmAdd = () => {
@@ -157,6 +394,12 @@ export default function ProductionScheduler() {
       span: pendingAdd.span,
       colorIdx: newJobColor,
       name: newJobName || "New Job",
+      status: "forecast",
+      customer: "",
+      percentComplete: 0,
+      productionValue: null,
+      targetShipDate: "",
+      notes: "",
     }]);
     setModal(false);
     setPendingAdd(null);
@@ -216,6 +459,35 @@ export default function ProductionScheduler() {
         </div>
       </div>
 
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <KPI
+          label="Factory Utilization"
+          value={`${kpis.utilization}%`}
+        />
+
+        <KPI
+          label="Active Projects"
+          value={kpis.activeProjects}
+        />
+
+        <KPI
+          label="Material Holds"
+          value={kpis.materialHoldProjects}
+        />
+
+        <KPI
+          label="Delayed"
+          value={kpis.delayedProjects}
+        />
+      </div>
+
       {/* Instruction bar */}
       <div style={{
         background: "#1E2330", border: "1px solid #2D3748", borderRadius: 8,
@@ -226,6 +498,47 @@ export default function ProductionScheduler() {
         <span>↔ <b style={{ color: "#94A3B8" }}>Drag block edges</b> to resize</span>
         <span>✋ <b style={{ color: "#94A3B8" }}>Drag block center</b> to move</span>
         <span>🖊 <b style={{ color: "#94A3B8" }}>Click block</b> to edit / delete</span>
+      </div>
+
+      {/* Conflicts summary */}
+      <div style={{
+        background: "#1E2330", border: "1px solid #2D3748", borderRadius: 8,
+        padding: "8px 16px", marginBottom: 16, fontSize: 12, color: "#64748B",
+      }}>
+        {conflictSummary.conflictCount === 0 ? (
+          <span>No conflicts detected.</span>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+              <span><b style={{ color: "#FBBF24" }}>Conflicts</b>: {conflictSummary.conflictCount} overlap(s)</span>
+              <span style={{ color: "#64748B" }}>Jobs flagged: {conflictSummary.conflictingJobCount}</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {conflictSummary.conflictPairs.slice(0, 4).map((p, idx) => (
+                <span
+                  key={`${p.aId}-${p.bId}-${idx}`}
+                  style={{
+                    background: "rgba(245,158,11,0.08)",
+                    border: "1px solid rgba(245,158,11,0.35)",
+                    color: "#FBBF24",
+                    padding: "2px 10px",
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                  title={`Overlaps on ${LINES[p.line]} around ${colToLabel(p.overlapStartCol)}`}
+                >
+                  {LINES[p.line]}: {p.aName} & {p.bName}
+                </span>
+              ))}
+              {conflictSummary.conflictCount > 4 && (
+                <span style={{ color: "#64748B", fontSize: 11 }}>
+                  +{conflictSummary.conflictCount - 4} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Scrollable Gantt */}
@@ -279,7 +592,7 @@ export default function ProductionScheduler() {
             {/* Grid rows */}
             <div
               ref={gridRef}
-              style={{ position: "relative", cursor: dragging ? "grabbing" : "crosshair" }}
+              style={{ position: "relative", cursor: dragging ? "grabbing" : "crosshair", touchAction: "none" }}
               onMouseDown={onGridMouseDown}
             >
               {/* Row backgrounds + grid lines */}
@@ -327,9 +640,24 @@ export default function ProductionScheduler() {
                 const color = JOB_COLORS[job.colorIdx] || JOB_COLORS[0];
                 const isSelected = selectedJob === job.id;
                 const isDraggingThis = dragging?.jobId === job.id;
+                const isConflict = conflictSummary.conflictJobIds.has(job.id);
+                const status = STATUS_CONFIG[job.status] || STATUS_CONFIG.forecast;
                 return (
                   <div
                     key={job.id}
+                    title={`
+${job.name}
+
+Customer: ${job.customer}
+
+Status: ${STATUS_CONFIG[job.status]?.label ?? STATUS_CONFIG.forecast.label}
+
+Completion: ${job.percentComplete}%
+
+Ship Date: ${job.targetShipDate}
+
+Value: $${job.productionValue?.toLocaleString()}
+`}
                     style={{
                       position: "absolute",
                       top: job.line * ROW_HEIGHT + 5,
@@ -337,14 +665,18 @@ export default function ProductionScheduler() {
                       width: job.span * COL_WIDTH - 4,
                       height: ROW_HEIGHT - 10,
                       background: color.bg,
-                      border: `2px solid ${isSelected ? "#FFF" : color.border}`,
+                      border: `2px solid ${
+                        isSelected ? "#FFF" : isConflict ? "#F59E0B" : color.border
+                      }`,
                       borderRadius: 7,
                       display: "flex", alignItems: "center",
                       boxShadow: isSelected
                         ? `0 0 0 3px rgba(255,255,255,0.3), 0 4px 16px rgba(0,0,0,0.4)`
-                        : isDraggingThis
-                          ? "0 8px 24px rgba(0,0,0,0.5)"
-                          : "0 2px 8px rgba(0,0,0,0.3)",
+                        : isConflict
+                          ? "0 0 0 3px rgba(245,158,11,0.35), 0 10px 30px rgba(0,0,0,0.45)"
+                          : isDraggingThis
+                            ? "0 8px 24px rgba(0,0,0,0.5)"
+                            : "0 2px 8px rgba(0,0,0,0.3)",
                       cursor: dragging?.jobId === job.id ? "grabbing" : "grab",
                       transition: isDraggingThis ? "none" : "box-shadow 0.15s",
                       zIndex: isSelected || isDraggingThis ? 10 : 2,
@@ -352,6 +684,45 @@ export default function ProductionScheduler() {
                     }}
                     onClick={(e) => { e.stopPropagation(); setSelectedJob(job.id); }}
                   >
+                    {isConflict && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 6,
+                          right: 8,
+                          background: "rgba(245,158,11,0.18)",
+                          border: "1px solid rgba(245,158,11,0.7)",
+                          color: "#FBBF24",
+                          fontSize: 10,
+                          fontWeight: 800,
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          pointerEvents: "none",
+                        }}
+                        title="Overlaps with another job on the same line"
+                      >
+                        Conflict
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: 4,
+                        right: 6,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        background: status.bg,
+                        color: status.color,
+                        border: `1px solid ${status.color}`,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {status.label}
+                    </div>
+
                     {/* Left resize handle */}
                     <div
                       style={{

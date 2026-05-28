@@ -142,10 +142,12 @@ function LoginPage({ onLogin }) {
       {/* Left — brand panel */}
       <div className="ps-login-brand-panel">
         <div className="ps-login-brand-inner">
-          <div className="ps-login-logo">
-            <span>SC</span>
-          </div>
-          <h1>Silver Creek Modular</h1>
+          <img
+            src="https://silvercreekmodular.com/wp-content/uploads/2026/03/svgviewer-png-output.png"
+            alt="Silver Creek Modular"
+            className="ps-login-scm-logo"
+            onError={(e) => { e.target.style.display = "none"; }}
+          />
           <p>Integrated operations platform for production scheduling, project management, and sales pipeline.</p>
           <ul className="ps-login-features">
             <li>

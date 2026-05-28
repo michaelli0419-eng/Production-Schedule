@@ -610,173 +610,287 @@ function ModuleWorkspace({
   const avgLineUtil = Math.round(lineUtilization.reduce((sum, line) => sum + line.utilization, 0) / Math.max(1, lineUtilization.length));
 
   if (module.id === "dashboard") {
+    const totalModules = jobs.reduce((s, j) => s + j.modules, 0);
+    const activeJobs = lineOperations.reduce((s, r) => s + r.activeCount, 0);
+    const avgReadiness = Math.round(jobs.reduce((s, j) => s + readinessScore(j), 0) / Math.max(1, jobs.length));
+    const pendingSubmittals = jobs.filter((j) => j.master?.submittalsOut && !j.master?.submittalsReceived).length;
+    const totalPipelineWeighted = pipelineDeals.reduce((s, d) => s + (Number(d.weightedAmount) || 0), 0);
+
     return (
-      <section className="ps-module-page" aria-label={module.title}>
-        <ModuleHead module={module} eyebrow="SCM operating bridge" />
-        <div className="ps-dashboard-grid">
-          <section className="ps-table-panel">
-            <div className="ps-section-head">
-              <h2>Line Operations Status</h2>
-              <span>Current load, 3-month outlook, and future gap warnings</span>
-            </div>
-            <div className="ps-line-matrix">
-              {lineOperations.map((row) => {
-                const util = lineUtilization.find((item) => item.line === row.line.id);
-                return (
-                  <div key={row.line.id} className="ps-line-row">
-                    <strong>{row.line.name}</strong>
-                    <span>{row.lineJobs.length} total jobs</span>
-                    <span>{row.currentJob ? row.currentJob.name : "No active job"}</span>
-                    <span>{row.upcoming[0] ? `${row.upcoming[0].name} (${displayDate(row.upcoming[0].start)})` : "No upcoming job"}</span>
-                    <span>{row.activeCount} active / {row.upcoming.length} upcoming / {row.outlookJobs.length} in 3mo</span>
-                    <span>{util?.utilization || 0}%</span>
-                    <span className={`ps-queue-badge is-${row.statusTone}`}>
-                      {row.overlapCount ? `${row.overlapCount} overlap` : row.hasGap ? "Gap risk" : "Stable"}
-                    </span>
-                    <span className={`ps-queue-badge is-${row.futureGapDays >= 5 ? "amber" : "green"}`}>
-                      {row.futureGapDays >= 5 ? `${row.futureGapDays}d future gap` : "No major future gap"}
-                    </span>
-                    {(row.currentJob || row.upcoming[0]) ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenProduction((row.currentJob || row.upcoming[0]).id)}
-                      >
-                        Open
-                      </button>
-                    ) : <span>-</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+      <section className="ps-dash" aria-label="Company Dashboard">
 
-          <section className="ps-dashboard-snapshot">
-            <article className="ps-mini-card">
-              <h3>Operations Snapshot</h3>
-              <div className="ps-mini-stats">
-                <span>Lines running <strong>{LINES.length - idleLines}/{LINES.length}</strong></span>
-                <span>Avg utilization <strong>{avgLineUtil}%</strong></span>
-                <span>Upcoming 7 days <strong>{upcoming7Days}</strong></span>
-              </div>
-            </article>
-            <article className="ps-mini-card">
-              <h3>Line Alerts</h3>
-              <div className="ps-mini-stats">
-                <span>Overlaps <strong>{totalOverlaps}</strong></span>
-                <span>Gap risk lines <strong>{totalGapLines}</strong></span>
-                <span>Late jobs <strong>{lateJobs}</strong></span>
-              </div>
-            </article>
-            <article className="ps-mini-card">
-              <h3>Today Throughput</h3>
-              <div className="ps-mini-stats">
-                <span>Active now <strong>{lineOperations.reduce((sum, row) => sum + row.activeCount, 0)}</strong></span>
-                <span>Completed (7d) <strong>{completedThisWeek}</strong></span>
-                <span>Idle lines <strong>{idleLines}</strong></span>
-              </div>
-            </article>
-          </section>
-
-          <section className="ps-bridge-panel">
-            <div className="ps-section-head">
-              <h2>Schedule Gaps and Handoffs</h2>
-              <span>{bridgeGaps.length} records need clean handoff data</span>
+        {/* ── Hero stat strip ───────────────────────────────────────────── */}
+        <div className="ps-dash-hero">
+          <div className="ps-dash-hero-brand">
+            <div className="ps-dash-logo-mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20 2L36 11.5V28.5L20 38L4 28.5V11.5L20 2Z" fill="#F97316" opacity="0.2"/>
+                <path d="M20 6L10 12V24L20 30L30 24V12L20 6Z" fill="#F97316" opacity="0.55"/>
+                <path d="M20 11L13 15V23L20 27L27 23V15L20 11Z" fill="#F97316"/>
+              </svg>
             </div>
-            <div className="ps-alert-list">
-              {lineOperations
-                .filter((row) => row.hasGap || row.overlapCount || !row.currentJob)
-                .map((row) => (
-                  <button key={row.line.id} type="button" onClick={() => onOpenProduction((row.currentJob || row.upcoming[0])?.id || jobs[0]?.id)}>
-                    <span className={`ps-status-dot is-${row.overlapCount ? "red" : row.hasGap ? "amber" : "blue"}`} />
-                    <strong>{row.line.name}</strong>
-                    <small>
-                      {row.overlapCount ? `${row.overlapCount} overlap windows` : row.hasGap ? "Gap detected between planned jobs" : "No active job on line"}
-                    </small>
+            <div>
+              <p className="ps-dash-hero-eyebrow">Purpose-Built, People-Powered</p>
+              <h1 className="ps-dash-hero-title">Silver Creek Modular</h1>
+              <p className="ps-dash-hero-sub">Building smarter for the next generation · Perris, CA</p>
+            </div>
+          </div>
+          <div className="ps-dash-hero-stats">
+            <div className="ps-dash-hero-stat">
+              <strong>{jobs.length}</strong>
+              <span>Active Jobs</span>
+            </div>
+            <div className="ps-dash-hero-stat">
+              <strong>{totalModules}</strong>
+              <span>Modules Scheduled</span>
+            </div>
+            <div className="ps-dash-hero-stat">
+              <strong>{avgLineUtil}%</strong>
+              <span>Plant Utilization</span>
+            </div>
+            <div className="ps-dash-hero-stat">
+              <strong>{avgReadiness}%</strong>
+              <span>Avg Readiness</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Top KPI row ───────────────────────────────────────────────── */}
+        <div className="ps-dash-kpi-row">
+          <div className={`ps-dash-kpi${activeJobs > 0 ? " is-orange" : ""}`}>
+            <div className="ps-dash-kpi-icon">▣</div>
+            <div>
+              <strong>{activeJobs}</strong>
+              <span>Currently On Line</span>
+            </div>
+          </div>
+          <div className={`ps-dash-kpi${lateJobs > 0 ? " is-red" : " is-green"}`}>
+            <div className="ps-dash-kpi-icon">{lateJobs > 0 ? "⚠" : "✓"}</div>
+            <div>
+              <strong>{lateJobs}</strong>
+              <span>Late Jobs</span>
+            </div>
+          </div>
+          <div className={`ps-dash-kpi${totalOverlaps > 0 ? " is-red" : " is-green"}`}>
+            <div className="ps-dash-kpi-icon">⊞</div>
+            <div>
+              <strong>{totalOverlaps}</strong>
+              <span>Line Overlaps</span>
+            </div>
+          </div>
+          <div className={`ps-dash-kpi${pendingSubmittals > 0 ? " is-amber" : " is-green"}`}>
+            <div className="ps-dash-kpi-icon">◈</div>
+            <div>
+              <strong>{pendingSubmittals}</strong>
+              <span>Submittals Pending</span>
+            </div>
+          </div>
+          <div className={`ps-dash-kpi${idleLines > 0 ? " is-amber" : " is-green"}`}>
+            <div className="ps-dash-kpi-icon">◉</div>
+            <div>
+              <strong>{idleLines}</strong>
+              <span>Idle Lines</span>
+            </div>
+          </div>
+          <div className="ps-dash-kpi is-purple">
+            <div className="ps-dash-kpi-icon">$</div>
+            <div>
+              <strong>{canViewPrices ? formatMoney(totalPipelineWeighted) : "—"}</strong>
+              <span>Weighted Pipeline</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="ps-dash-body">
+
+          {/* ── Line status cards ─────────────────────────────────────── */}
+          <div className="ps-dash-col ps-dash-col-main">
+            <section className="ps-dash-panel">
+              <div className="ps-dash-panel-head">
+                <h2>Production Lines</h2>
+                <span>Live status across all 4 factory lines</span>
+              </div>
+              <div className="ps-dash-lines">
+                {lineOperations.map((row) => {
+                  const util = lineUtilization.find((u) => u.line === row.line.id);
+                  const tone = row.overlapCount ? "red" : row.currentJob ? "green" : row.hasGap ? "amber" : "blue";
+                  const pct = util?.utilization || 0;
+                  return (
+                    <div key={row.line.id} className={`ps-dash-line-card is-${tone}`}>
+                      <div className="ps-dash-line-header">
+                        <div className="ps-dash-line-title">
+                          <span className={`ps-dash-line-dot is-${tone}`} />
+                          <strong>{row.line.name}</strong>
+                          <small>{row.line.focus}</small>
+                        </div>
+                        <div className="ps-dash-line-meta">
+                          <span className={`ps-queue-badge is-${tone}`}>{row.statusLabel}</span>
+                          {(row.currentJob || row.upcoming[0]) && (
+                            <button type="button" className="ps-dash-open-btn" onClick={() => onOpenProduction((row.currentJob || row.upcoming[0]).id)}>
+                              Open →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="ps-dash-line-body">
+                        <div className="ps-dash-line-job">
+                          <span>Active</span>
+                          <strong>{row.currentJob?.name || "No active job"}</strong>
+                        </div>
+                        <div className="ps-dash-line-job">
+                          <span>Next</span>
+                          <strong>{row.upcoming[0] ? `${row.upcoming[0].name} · ${displayDate(row.upcoming[0].start)}` : "Nothing queued"}</strong>
+                        </div>
+                      </div>
+                      <div className="ps-dash-line-footer">
+                        <div className="ps-dash-util-track">
+                          <div className={`ps-dash-util-fill is-${pct >= 85 ? "red" : pct >= 60 ? "amber" : "green"}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span>{pct}% utilized · {util?.jobs || 0} jobs · {util?.modules || 0} modules</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Week-ahead digest */}
+            <section className="ps-dash-panel">
+              <div className="ps-dash-panel-head">
+                <h2>Week Ahead</h2>
+                <span>Jobs starting, shipping, and setting in the next 7 days</span>
+              </div>
+              <div className="ps-week-ahead">
+                {["Starting", "Shipping", "Setting"].map((type, ti) => {
+                  const weekEnd = addDays(today, 7);
+                  const digest = jobs.filter((j) => {
+                    if (ti === 0) return j.start >= today && j.start <= weekEnd;
+                    if (ti === 1) return j.end >= today && j.end <= weekEnd;
+                    return j.due >= today && j.due <= weekEnd;
+                  });
+                  return (
+                    <div key={type} className="ps-week-col">
+                      <div className="ps-week-col-head">{type} <span>{digest.length}</span></div>
+                      {digest.length === 0
+                        ? <p className="ps-empty" style={{ padding: "6px 0", fontSize: 11 }}>None this week</p>
+                        : digest.map((j) => (
+                          <button key={j.id} type="button" className="ps-week-job" onClick={() => onOpenProduction(j.id)}>
+                            <i style={{ background: j.color }} />
+                            <span>{j.name}</span>
+                            <small>{j.line} · {ti === 0 ? displayDate(j.start) : ti === 1 ? displayDate(j.end) : displayDate(j.due)}</small>
+                          </button>
+                        ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+
+          {/* ── Right column ──────────────────────────────────────────── */}
+          <div className="ps-dash-col ps-dash-col-side">
+
+            {/* Alerts */}
+            <section className="ps-dash-panel">
+              <div className="ps-dash-panel-head">
+                <h2>Active Alerts</h2>
+                <span>{risks.length} issues requiring attention</span>
+              </div>
+              <div className="ps-dash-alerts">
+                {risks.length === 0 && <p className="ps-empty">No active alerts — all clear.</p>}
+                {risks.map((risk, i) => (
+                  <button key={i} type="button" className={`ps-dash-alert-row is-${risk.type === "Late" || risk.type === "Overlap" ? "red" : risk.type === "Delay" || risk.type === "Hold" ? "amber" : "blue"}`}
+                    onClick={() => risk.job && onOpenProduction(risk.job.id)}>
+                    <span className={`ps-status-dot is-${risk.type === "Late" || risk.type === "Overlap" ? "red" : risk.type === "Delay" ? "amber" : "blue"}`} />
+                    <div>
+                      <strong>{risk.type}</strong>
+                      <small>{risk.job?.name || risk.detail}</small>
+                    </div>
+                    {risk.job && <span className="ps-dash-alert-arrow">→</span>}
                   </button>
                 ))}
-              {!lineOperations.some((row) => row.hasGap || row.overlapCount || !row.currentJob) && (
-                <p className="ps-empty">All lines have active or cleanly planned work.</p>
-              )}
-            </div>
-          </section>
+              </div>
+            </section>
 
-          <section className="ps-table-panel">
-            <div className="ps-section-head">
-              <h2>Priority Risks</h2>
-              <span>Schedule and handoff exceptions</span>
-            </div>
-            <div className="ps-compact-list">
-              {risks.length ? risks.map((risk, index) => (
-                <button key={`${risk.type}-${index}`} type="button" onClick={() => risk.job && onOpenProduction(risk.job.id)}>
-                  <strong>{risk.type}</strong>
-                  <span>{risk.job?.name || risk.detail}</span>
-                  <small>{risk.job ? risk.detail : "line conflict"}</small>
-                </button>
-              )) : <p className="ps-empty">No current conflicts.</p>}
-            </div>
-          </section>
+            {/* Late jobs */}
+            <section className="ps-dash-panel">
+              <div className="ps-dash-panel-head">
+                <h2>Late Jobs</h2>
+                <span>Ship date exceeds customer set date</span>
+              </div>
+              {lateJobs === 0
+                ? <p className="ps-empty" style={{ padding: "12px 16px" }}>No late jobs — all on schedule.</p>
+                : <div className="ps-dash-late-list">
+                    {jobs.filter((j) => LINE_IDS.includes(j.line) && j.end > j.due)
+                      .sort((a, b) => dateDiffDays(b.due, b.end) - dateDiffDays(a.due, a.end))
+                      .map((j) => (
+                        <button key={j.id} type="button" className="ps-dash-late-row" onClick={() => onOpenProduction(j.id)}>
+                          <i style={{ background: j.color }} />
+                          <div>
+                            <strong>{j.name}</strong>
+                            <small>{j.client} · {j.line}</small>
+                          </div>
+                          <span className="ps-pill is-red">{dateDiffDays(j.due, j.end)}d late</span>
+                        </button>
+                      ))}
+                  </div>}
+            </section>
 
-          {/* Late jobs aging table */}
-          <section className="ps-table-panel">
-            <div className="ps-section-head">
-              <h2>Late Jobs — Aging</h2>
-              <span>Jobs where shipping date exceeds set (due) date</span>
-            </div>
-            {lateJobs === 0
-              ? <p className="ps-empty">No late jobs. All shipping dates are within due dates.</p>
-              : (
-                <div className="ps-project-table">
-                  <div className="ps-project-row is-header">
-                    <span>Job</span><span>Line</span><span>Ship Date</span><span>Due Date</span><span>Days Late</span><span>Owner</span>
-                  </div>
-                  {jobs.filter((j) => LINE_IDS.includes(j.line) && j.end > j.due).sort((a, b) => dateDiffDays(a.due, a.end) > dateDiffDays(b.due, b.end) ? -1 : 1).map((j) => {
-                    const daysLate = dateDiffDays(j.due, j.end);
+            {/* Readiness exceptions */}
+            <section className="ps-dash-panel">
+              <div className="ps-dash-panel-head">
+                <h2>Readiness Gaps</h2>
+                <span>Active jobs below 100% readiness</span>
+              </div>
+              <div className="ps-dash-readiness-list">
+                {jobs.filter((j) => j.line !== QUEUE && readinessScore(j) < 100)
+                  .sort((a, b) => readinessScore(a) - readinessScore(b))
+                  .slice(0, 5)
+                  .map((j) => {
+                    const score = readinessScore(j);
                     return (
-                      <button key={j.id} type="button" className="ps-project-row" onClick={() => onOpenProduction(j.id)}>
-                        <span><strong>{j.name}</strong><small>{j.client}</small></span>
-                        <span>{j.line}</span>
-                        <span><strong style={{ color: "#b91c1c" }}>{displayDate(j.end)}</strong></span>
-                        <span>{displayDate(j.due)}</span>
-                        <span><i className="ps-pill is-red">{daysLate}d late</i></span>
-                        <span><small>{j.master?.inspector || "—"}</small></span>
+                      <button key={j.id} type="button" className="ps-dash-readiness-row" onClick={() => onOpenProduction(j.id)}>
+                        <div className="ps-dash-readiness-info">
+                          <strong>{j.name}</strong>
+                          <small>{["drawings","materials","permits","inspections"].filter((k) => !j.readiness[k]).join(", ")} missing</small>
+                        </div>
+                        <div className="ps-dash-readiness-bar">
+                          <div className={`ps-capacity-bar-fill is-${score >= 75 ? "amber" : "red"}`} style={{ width: `${score}%` }} />
+                        </div>
+                        <span className={`ps-dash-readiness-pct${score < 50 ? " is-low" : ""}`}>{score}%</span>
                       </button>
                     );
                   })}
-                </div>
-              )}
-          </section>
+                {jobs.filter((j) => j.line !== QUEUE && readinessScore(j) < 100).length === 0 && (
+                  <p className="ps-empty" style={{ padding: "12px 16px" }}>All active jobs are 100% ready.</p>
+                )}
+              </div>
+            </section>
 
-          {/* Week-ahead digest */}
-          <section className="ps-table-panel">
-            <div className="ps-section-head">
-              <h2>Week-Ahead Digest</h2>
-              <span>Starting, shipping, and being set in the next 7 days</span>
-            </div>
-            <div className="ps-week-ahead">
-              {["Starting", "Shipping", "Setting"].map((type, ti) => {
-                const weekEnd = addDays(today, 7);
-                const digest = jobs.filter((j) => {
-                  if (ti === 0) return j.start >= today && j.start <= weekEnd;
-                  if (ti === 1) return j.end >= today && j.end <= weekEnd;
-                  return j.due >= today && j.due <= weekEnd;
-                });
-                return (
-                  <div key={type} className="ps-week-col">
-                    <div className="ps-week-col-head">{type} <span>{digest.length}</span></div>
-                    {digest.length === 0
-                      ? <p className="ps-empty" style={{ padding: "8px 0" }}>None this week</p>
-                      : digest.map((j) => (
-                        <button key={j.id} type="button" className="ps-week-job" onClick={() => onOpenProduction(j.id)}>
-                          <i style={{ background: j.color }} />
-                          <span>{j.name}</span>
-                          <small>{j.line} · {ti === 0 ? displayDate(j.start) : ti === 1 ? displayDate(j.end) : displayDate(j.due)}</small>
-                        </button>
-                      ))}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+            {/* Pipeline funnel summary */}
+            <section className="ps-dash-panel">
+              <div className="ps-dash-panel-head">
+                <h2>Pipeline Summary</h2>
+                <span>Deals by stage</span>
+              </div>
+              <div className="ps-dash-funnel">
+                {PIPELINE_STAGES.map((stage) => {
+                  const count = pipelineDeals.filter((d) => d.stage === stage.id).length;
+                  const weighted = pipelineDeals.filter((d) => d.stage === stage.id).reduce((s, d) => s + (Number(d.weightedAmount) || 0), 0);
+                  return (
+                    <div key={stage.id} className="ps-dash-funnel-row">
+                      <span className="ps-dash-funnel-label">{stage.label}</span>
+                      <div className="ps-dash-funnel-bar-track">
+                        <div className="ps-dash-funnel-bar-fill" style={{ width: `${stage.probability}%` }} />
+                      </div>
+                      <span className="ps-dash-funnel-count">{count} deal{count !== 1 ? "s" : ""}</span>
+                      <span className="ps-dash-funnel-val">{canViewPrices ? formatMoney(weighted) : "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
         </div>
       </section>
     );
@@ -2412,8 +2526,18 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       {/* ── Top Bar ─────────────────────────────────────────────────────── */}
       <header className="ps-topbar">
         <div className="ps-brand">
-          <p className="ps-eyebrow">Silver Creek Modular</p>
-          <h1>{activeModuleConfig.title}</h1>
+          <div className="ps-brand-mark" aria-hidden="true">
+            {/* Silver Creek Modular logo mark — orange geometric diamond */}
+            <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20 2L36 11.5V28.5L20 38L4 28.5V11.5L20 2Z" fill="#F97316" opacity="0.15"/>
+              <path d="M20 6L10 12V24L20 30L30 24V12L20 6Z" fill="#F97316" opacity="0.5"/>
+              <path d="M20 11L13 15V23L20 27L27 23V15L20 11Z" fill="#F97316"/>
+            </svg>
+          </div>
+          <div className="ps-brand-text">
+            <p className="ps-eyebrow">SCM Hub</p>
+            <h1>Silver Creek Modular</h1>
+          </div>
         </div>
         <nav className="ps-nav" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => (

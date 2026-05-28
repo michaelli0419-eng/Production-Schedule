@@ -139,50 +139,93 @@ function LoginPage({ onLogin }) {
 
   return (
     <main className="ps-login-shell">
-      <section className="ps-login-panel" aria-label="Sales pipeline login">
-        <div className="ps-login-brand">
-          <p className="ps-eyebrow">Silver Creek Modular</p>
-          <h1>Sales Pipeline Login</h1>
-          <span>Sign in to open the operating schedule. Price fields are limited to approved estimating and executive users.</span>
+      {/* Left — brand panel */}
+      <div className="ps-login-brand-panel">
+        <div className="ps-login-brand-inner">
+          <div className="ps-login-logo">
+            <span>SC</span>
+          </div>
+          <h1>Silver Creek Modular</h1>
+          <p>Integrated operations platform for production scheduling, project management, and sales pipeline.</p>
+          <ul className="ps-login-features">
+            <li>
+              <span className="ps-login-feature-icon">▣</span>
+              <span>Real-time production scheduling across all factory lines</span>
+            </li>
+            <li>
+              <span className="ps-login-feature-icon">◈</span>
+              <span>Submittal tracking, DSA approvals &amp; document control</span>
+            </li>
+            <li>
+              <span className="ps-login-feature-icon">◉</span>
+              <span>Sales pipeline from lead through contract handoff</span>
+            </li>
+            <li>
+              <span className="ps-login-feature-icon">◆</span>
+              <span>Capacity planning and forward-looking load forecasting</span>
+            </li>
+          </ul>
+          <div className="ps-login-brand-footer">
+            <span>© {new Date().getFullYear()} Silver Creek Modular · SCM Hub v2.0</span>
+          </div>
         </div>
-        <form className="ps-login-form" onSubmit={submitLogin}>
-          <label>
-            Email
-            <input
-              autoComplete="email"
-              autoFocus
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="name@silvercreek.local"
-            />
-          </label>
-          <label>
-            Access code
-            <input
-              autoComplete="current-password"
-              type="password"
-              value={accessCode}
-              onChange={(event) => setAccessCode(event.target.value)}
-              placeholder="Enter code"
-            />
-          </label>
-          {error && <p className="ps-login-error">{error}</p>}
-          <button type="submit" disabled={busy}>{busy ? "Signing in..." : "Log in"}</button>
-        </form>
-        {isSupabaseEnabled ? (
-          <div className="ps-login-note">
-            <strong>Supabase Auth enabled</strong>
-            <span>Use your Supabase email and password.</span>
+      </div>
+
+      {/* Right — form panel */}
+      <div className="ps-login-form-panel">
+        <section className="ps-login-card" aria-label="Sign in">
+          <div className="ps-login-card-head">
+            <p className="ps-login-card-eyebrow">SCM Hub — Internal Portal</p>
+            <h2>Sign in to your account</h2>
+            <p className="ps-login-card-sub">Access is restricted to authorized Silver Creek Modular personnel.</p>
           </div>
-        ) : (
-          <div className="ps-login-note">
-            <strong>Demo access</strong>
-            <span>Pricing: michael@silvercreek.local / 2468</span>
-            <span>No pricing: sales@silvercreek.local / 2222</span>
-          </div>
-        )}
-      </section>
+          <form className="ps-login-form" onSubmit={submitLogin}>
+            <label>
+              Work Email
+              <input
+                autoComplete="email"
+                autoFocus
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="name@silvercreek.local"
+              />
+            </label>
+            <label>
+              Password / Access Code
+              <input
+                autoComplete="current-password"
+                type="password"
+                value={accessCode}
+                onChange={(event) => setAccessCode(event.target.value)}
+                placeholder="••••••••"
+              />
+            </label>
+            {error && <p className="ps-login-error">{error}</p>}
+            <button type="submit" className="ps-login-submit" disabled={busy}>
+              {busy ? (
+                <span className="ps-login-spinner">
+                  <span />
+                  Signing in…
+                </span>
+              ) : "Sign In"}
+            </button>
+          </form>
+          {isSupabaseEnabled ? (
+            <div className="ps-login-note">
+              <strong>Supabase Auth active</strong>
+              <span>Use your Supabase credentials.</span>
+            </div>
+          ) : (
+            <div className="ps-login-note">
+              <strong>Demo credentials</strong>
+              <span>Exec: michael@silvercreek.local / 2468</span>
+              <span>Sales: sales@silvercreek.local / 2222</span>
+            </div>
+          )}
+          <p className="ps-login-help">Need access? Contact your system administrator.</p>
+        </section>
+      </div>
     </main>
   );
 }

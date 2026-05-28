@@ -19,53 +19,160 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Login — full-screen split layout ──────────────────────────────────── */
 .ps-login-shell {
   min-height: 100%;
   display: grid;
-  place-items: center;
-  padding: 24px;
+  grid-template-columns: 1fr 1fr;
+  overflow: auto;
+}
+@media (max-width: 860px) {
+  .ps-login-shell { grid-template-columns: 1fr; }
+}
+
+/* Left brand panel */
+.ps-login-brand-panel {
+  background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 55%, #0f2d52 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 44px;
+  position: relative;
+  overflow: hidden;
+}
+.ps-login-brand-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background:
-    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.9)),
-    url("/src/assets/hero.png") center / cover;
+    radial-gradient(ellipse 80% 60% at 20% 80%, rgba(37,99,235,.18) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 50% at 80% 20%, rgba(16,185,129,.10) 0%, transparent 60%);
+  pointer-events: none;
+}
+@media (max-width: 860px) { .ps-login-brand-panel { display: none; } }
+
+.ps-login-brand-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 400px;
 }
 
-.ps-login-panel {
-  width: min(100%, 420px);
-  display: grid;
-  gap: 18px;
-  padding: 24px;
-  border: 1px solid rgba(226, 232, 240, 0.18);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.32);
+.ps-login-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(37,99,235,.45);
+}
+.ps-login-logo span {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
 }
 
-.ps-login-brand {
-  display: grid;
+.ps-login-brand-inner h1 {
+  color: #f8fafc;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+}
+
+.ps-login-brand-inner > p {
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.65;
+  max-width: 340px;
+}
+
+.ps-login-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 8px;
+}
+.ps-login-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ps-login-feature-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #60a5fa;
+  margin-top: 1px;
+}
+
+.ps-login-brand-footer {
+  margin-top: 12px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255,255,255,.1);
+  color: #475569;
+  font-size: 11px;
+}
+
+/* Right form panel */
+.ps-login-form-panel {
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 36px;
+}
+
+.ps-login-card {
+  width: min(100%, 400px);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.ps-login-card-head {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
-
-.ps-login-brand h1 {
+.ps-login-card-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #2563eb;
+}
+.ps-login-card-head h2 {
+  font-size: 26px;
+  font-weight: 900;
   color: #0f172a;
-  font-size: 25px;
+  letter-spacing: -0.3px;
   line-height: 1.15;
 }
-
-.ps-login-brand span {
-  color: #475569;
+.ps-login-card-sub {
   font-size: 13px;
+  color: #64748b;
   line-height: 1.55;
+  margin-top: 2px;
 }
 
 .ps-login-form {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .ps-login-form label {
   display: grid;
-  gap: 5px;
-  color: #475569;
+  gap: 6px;
+  color: #334155;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -73,59 +180,90 @@ body {
 }
 
 .ps-login-form input {
-  height: 38px;
-  padding: 0 11px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  height: 42px;
+  padding: 0 13px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
   background: #fff;
   color: #0f172a;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  transition: border-color .15s, box-shadow .15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
 }
-
 .ps-login-form input:focus {
-  outline: 2px solid rgba(37, 99, 235, 0.22);
+  outline: none;
   border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,.12);
 }
+.ps-login-form input::placeholder { color: #94a3b8; }
 
-.ps-login-form button {
-  height: 38px;
+.ps-login-submit {
+  height: 44px;
   border: 0;
-  border-radius: 6px;
-  background: #2563eb;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
+  letter-spacing: .02em;
+  box-shadow: 0 4px 14px rgba(37,99,235,.35);
+  transition: opacity .15s, box-shadow .15s;
+  margin-top: 4px;
 }
+.ps-login-submit:hover { opacity: .92; box-shadow: 0 6px 18px rgba(37,99,235,.42); }
+.ps-login-submit:disabled { opacity: .6; cursor: not-allowed; }
 
-.ps-login-form button:hover {
-  background: #1d4ed8;
+.ps-login-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
+.ps-login-spinner span {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ps-spin .7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes ps-spin { to { transform: rotate(360deg); } }
 
 .ps-login-error {
-  padding: 8px 10px;
+  padding: 10px 13px;
   border: 1px solid #fecaca;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fef2f2;
   color: #b91c1c;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .ps-login-note {
   display: grid;
   gap: 3px;
-  padding-top: 12px;
-  border-top: 1px solid #e2e8f0;
+  padding: 13px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
   color: #64748b;
   font-size: 11px;
 }
-
 .ps-login-note strong {
   color: #334155;
   font-size: 11px;
+  font-weight: 800;
+  margin-bottom: 2px;
+}
+
+.ps-login-help {
+  text-align: center;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 /* ── Shell ────────────────────────────────────────────────────────────────── */

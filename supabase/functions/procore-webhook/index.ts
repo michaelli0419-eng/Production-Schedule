@@ -61,6 +61,12 @@ async function findJobId(procoreProjectId: number, jobNumber?: string): Promise<
   return data?.id ?? null;
 }
 
+/** Generate a deterministic UUID from a Procore resource ID — format: 8-4-4-4-12 */
+function procoreUuid(procoreId: number): string {
+  const hex = procoreId.toString(16).padStart(12, "0");
+  return `5f6f7263-7072-4f63-${hex.slice(0, 4)}-${hex}`;
+}
+
 async function handleSubmittal(payload: any) {
   const sub = payload.resource ?? payload;
   const procoreProjectId = payload.project_id ?? sub.project_id;
@@ -68,10 +74,13 @@ async function handleSubmittal(payload: any) {
 
   const jobId = await findJobId(procoreProjectId, jobNumber);
 
-  // Upsert into the submittals table
+  // Upsert into the submittals table only when we have a matched job
+  if (!jobId) {
+    console.warn(`No job matched for project_id=${procoreProjectId} job_number=${jobNumber} — skipping submittal upsert`);
+  } else {
   const submittalRow: any = {
-    id: `procore-${sub.id}`,
-    job_id: jobId ?? `procore-project-${procoreProjectId}`,
+    id: procoreUuid(sub.id),
+    job_id: jobId,
     type: "submittal",
     title: sub.title ?? sub.spec_section?.description ?? "Procore Submittal",
     rev_number: sub.revision ?? 1,
@@ -88,8 +97,9 @@ async function handleSubmittal(payload: any) {
     .upsert(submittalRow, { onConflict: "id" });
 
   if (subError) console.error("submittals upsert error:", subError.message);
+  } // end if (jobId) for submittal upsert
 
-  // If we matched a job, update the master DSA/submittal fields too
+  // Update master DSA/submittal fields on the job
   if (jobId) {
     const patch: any = {};
 
@@ -110,7 +120,7 @@ async function handleSubmittal(payload: any) {
   // Log activity
   await supabase.from("activity_log").insert({
     entity_type: "submittal",
-    entity_id:   `procore-${sub.id}`,
+    entity_id:   String(sub.id),
     action:      "procore_submittal_sync",
     detail:      { procore_status: sub.status, job_id: jobId, procore_project_id: procoreProjectId },
     user_name:   "Procore Sync",

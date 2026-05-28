@@ -32,6 +32,7 @@ ALTER TABLE IF EXISTS user_profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "scm_user_profiles_self_select" ON user_profiles;
 DROP POLICY IF EXISTS "scm_user_profiles_self_update" ON user_profiles;
 DROP POLICY IF EXISTS "scm_user_profiles_service" ON user_profiles;
+DROP POLICY IF EXISTS "scm_user_profiles_admin_all" ON user_profiles;
 
 CREATE POLICY "scm_user_profiles_self_select"
   ON user_profiles
@@ -49,6 +50,12 @@ CREATE POLICY "scm_user_profiles_service"
   FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
+
+CREATE POLICY "scm_user_profiles_admin_all"
+  ON user_profiles
+  FOR ALL
+  USING (lower(coalesce(auth.jwt() ->> 'email', '')) = 'michael@webbinvestments.com')
+  WITH CHECK (lower(coalesce(auth.jwt() ->> 'email', '')) = 'michael@webbinvestments.com');
 
 DO $$
 BEGIN

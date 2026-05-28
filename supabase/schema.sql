@@ -169,6 +169,7 @@ DROP POLICY IF EXISTS "scm_sales_pipeline_all"   ON sales_pipeline_deals;
 DROP POLICY IF EXISTS "scm_user_profiles_self_select" ON user_profiles;
 DROP POLICY IF EXISTS "scm_user_profiles_self_update" ON user_profiles;
 DROP POLICY IF EXISTS "scm_user_profiles_service" ON user_profiles;
+DROP POLICY IF EXISTS "scm_user_profiles_admin_all" ON user_profiles;
 
 CREATE POLICY "scm_jobs_all"
   ON jobs
@@ -204,6 +205,12 @@ CREATE POLICY "scm_user_profiles_service"
   FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
+
+CREATE POLICY "scm_user_profiles_admin_all"
+  ON user_profiles
+  FOR ALL
+  USING (lower(coalesce(auth.jwt() ->> 'email', '')) = 'michael@webbinvestments.com')
+  WITH CHECK (lower(coalesce(auth.jwt() ->> 'email', '')) = 'michael@webbinvestments.com');
 
 
 -- ─── Enable Realtime ──────────────────────────────────────────────────────────

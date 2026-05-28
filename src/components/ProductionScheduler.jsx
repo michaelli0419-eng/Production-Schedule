@@ -856,6 +856,7 @@ function UserProfilesAdmin({ userAdmin }) {
         </label>
         <Button>{draft.id ? "Save Profile" : "Add Profile"}</Button>
       </form>
+      <p className="ps-empty">Use the Auth user UUID from Supabase Authentication. This updates `public.user_profiles` in Supabase.</p>
       {status && <p className="ps-empty">{status}</p>}
       {userAdmin.error && <p className="ps-login-error">{userAdmin.error}</p>}
       {userAdmin.loading ? <p className="ps-empty">Loading profiles...</p> : (

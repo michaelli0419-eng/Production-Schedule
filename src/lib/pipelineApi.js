@@ -21,6 +21,11 @@ export function dbRowToPipelineDeal(row) {
     sourceType: row.source_type ?? "",
     sourceSheet: row.source_sheet ?? "",
     sourceRow: row.source_row ?? null,
+    clientId: row.client_id ?? null,
+    bdm: row.bdm ?? "",
+    modules: row.modules ?? 0,
+    convertedJobId: row.converted_job_id_fk ?? null,
+    convertedAt: row.converted_at ?? null,
   };
 }
 
@@ -45,6 +50,11 @@ export function pipelineDealToDbRow(deal) {
     source_type: deal.sourceType || null,
     source_sheet: deal.sourceSheet || null,
     source_row: deal.sourceRow || null,
+    client_id: deal.clientId || null,
+    bdm: deal.bdm || null,
+    modules: Number(deal.modules) || 0,
+    converted_job_id_fk: deal.convertedJobId || null,
+    converted_at: deal.convertedAt || null,
   };
 }
 

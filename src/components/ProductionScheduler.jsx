@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJobs } from "../hooks/useJobs.js";
 import { usePipelineDeals } from "../hooks/usePipelineDeals.js";
+import { useSubmittals } from "../hooks/useSubmittals.js";
 import { useUserProfiles } from "../hooks/useUserProfiles.js";
 import { isSupabaseEnabled } from "../lib/supabase.js";
+import { logActivity } from "../lib/activityApi.js";
 
 const FALLBACK_YEAR = 2026;
 const LINES = [
@@ -495,6 +497,7 @@ function ModuleWorkspace({
   module,
   jobs,
   pipelineDeals,
+  submittals,
   kpis,
   risks,
   overlaps,
@@ -1405,6 +1408,66 @@ function ModuleWorkspace({
             </div>
           </section>
         )}
+
+        {/* Formal Submittals from Supabase */}
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Formal Submittal Log</h2>
+            <span>{submittals.length} records</span>
+          </div>
+          {submittals.length === 0 ? (
+            <p style={{ padding: "16px 0", color: "#64748b", fontSize: "0.875rem" }}>
+              No formal submittals logged yet. Open a job and add submittals from its detail panel, or use the Supabase dashboard to seed records.
+            </p>
+          ) : (
+            <div className="ps-pipeline-table-wrap">
+              <table className="ps-pipeline-table ps-submittal-table">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Type</th>
+                    <th>Title</th>
+                    <th>Rev</th>
+                    <th>Status</th>
+                    <th>Sent</th>
+                    <th>Received</th>
+                    <th>Approved</th>
+                    <th>Reviewer</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {submittals.map((s) => {
+                    const job = jobs.find((j) => j.id === s.jobId);
+                    const sentAge = s.sentDate && !s.receivedDate ? agingDays(s.sentDate) : null;
+                    const isOverdue = sentAge !== null && sentAge > 21;
+                    return (
+                      <tr key={s.id} className={isOverdue ? "ps-submittal-row-warn" : ""}>
+                        <td>
+                          <strong>{job?.name ?? s.jobId}</strong>
+                          {job && <small style={{ display: "block", color: "#64748b" }}>{job.client}</small>}
+                        </td>
+                        <td style={{ textTransform: "capitalize" }}>{s.type}</td>
+                        <td>{s.title || <span className="ps-sub-empty">—</span>}</td>
+                        <td>Rev {s.revNumber}</td>
+                        <td>
+                          <span className={`ps-sub-badge ps-sub-${s.status.replace(/_/g, "-")}`}>
+                            {s.status.replace(/_/g, " ")}
+                          </span>
+                        </td>
+                        <td>{s.sentDate ? <span className="ps-sub-sent">{displayDate(s.sentDate)}</span> : <span className="ps-sub-empty">—</span>}</td>
+                        <td>{s.receivedDate ? <span className="ps-sub-received">{displayDate(s.receivedDate)}</span> : s.sentDate ? <span className="ps-sub-pending">Awaiting</span> : <span className="ps-sub-empty">—</span>}</td>
+                        <td>{s.approvedDate ? <span className="ps-sub-received">{displayDate(s.approvedDate)}</span> : <span className="ps-sub-empty">—</span>}</td>
+                        <td>{s.reviewer || <span className="ps-sub-empty">—</span>}</td>
+                        <td style={{ maxWidth: 200 }}>{s.notes ? <span title={s.notes}>{s.notes.slice(0, 40)}{s.notes.length > 40 ? "…" : ""}</span> : <span className="ps-sub-empty">—</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </section>
     );
   }
@@ -1723,8 +1786,10 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   } = useJobs(SAMPLE_JOBS, normalizeJob);
   const {
     deals: pipelineDeals,
+    setDeals: setPipelineDeals,
     setDealsBulk: setPipelineDealsBulk,
   } = usePipelineDeals(SAMPLE_PIPELINE_DEALS);
+  const { submittals, saveSubmittal, removeSubmittal } = useSubmittals();
   const userProfiles = useUserProfiles();
 
   const [selectedId, setSelectedId] = useState(null);
@@ -2227,9 +2292,10 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   function addJobFromDeal(deal) {
     const closeDate = deal.expectedCloseDate || addDays(today, 60);
     const startDate = addDays(closeDate, 14);
+    const newId = String(nextId++);
     const job = normalizeJob(
       {
-        id: String(nextId++),
+        id: newId,
         name: deal.opportunityName || "New School Project",
         client: deal.client || "School District",
         line: "L1",
@@ -2243,10 +2309,21 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
         crew: 10,
         priority: "High",
         notes: `Converted from pipeline deal. ${deal.notes || ""}`.trim(),
+        sourceDealId: deal.id,
       },
       nextId,
     );
     setJobs((c) => [...c, job]);
+    // Mark deal as converted
+    setPipelineDeals((c) =>
+      c.map((d) =>
+        d.id === deal.id
+          ? { ...d, stage: "handoff", convertedJobId: newId, convertedAt: today }
+          : d,
+      ),
+    );
+    logActivity("deal", deal.id, "converted_to_job", { jobId: newId }, currentUser);
+    logActivity("job", newId, "created_from_deal", { dealId: deal.id }, currentUser);
     setSelectedId(job.id);
     setActiveModule("production");
     showToast(`Job created from "${deal.opportunityName || "deal"}"`);
@@ -3168,6 +3245,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           module={activeModuleConfig}
           jobs={workingJobs}
           pipelineDeals={pipelineDeals}
+          submittals={submittals}
           kpis={kpis}
           risks={risks}
           overlaps={overlaps}

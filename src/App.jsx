@@ -41,6 +41,15 @@ const USERS = [
   },
 ];
 
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
+}
+
 function LoginPage({ onLogin }) {
   const [email, setEmail] = useState("");
   const [accessCode, setAccessCode] = useState("");
@@ -70,10 +79,14 @@ function LoginPage({ onLogin }) {
       setBusy(true);
       setError("");
       try {
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
-          email: normalizedEmail,
-          password: normalizedCode,
-        });
+        const { data, error: signInError } = await withTimeout(
+          supabase.auth.signInWithPassword({
+            email: normalizedEmail,
+            password: normalizedCode,
+          }),
+          12000,
+          "Sign-in timed out. Check internet/Supabase settings and try again.",
+        );
         if (signInError) {
           setError(signInError.message || "Login failed.");
           return;
@@ -83,11 +96,15 @@ function LoginPage({ onLogin }) {
           setError("Login failed.");
           return;
         }
-        const { data: profile, error: profileError } = await supabase
-          .from("user_profiles")
-          .select("full_name, role, can_view_prices")
-          .eq("id", authUser.id)
-          .maybeSingle();
+        const { data: profile, error: profileError } = await withTimeout(
+          supabase
+            .from("user_profiles")
+            .select("full_name, role, can_view_prices")
+            .eq("id", authUser.id)
+            .maybeSingle(),
+          12000,
+          "Profile lookup timed out. Check Supabase table/policies and try again.",
+        );
 
         if (profileError) {
           setError(profileError.message || "Could not load user profile.");

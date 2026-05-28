@@ -78,6 +78,10 @@ function LoginPage({ onLogin }) {
     if (isSupabaseEnabled && supabase) {
       setBusy(true);
       setError("");
+      const busyWatchdog = window.setTimeout(() => {
+        setBusy(false);
+        setError("Login is taking too long. Please try again.");
+      }, 15000);
       try {
         const { data, error: signInError } = await withTimeout(
           supabase.auth.signInWithPassword({
@@ -118,7 +122,10 @@ function LoginPage({ onLogin }) {
           role: profile?.role || "User",
           canViewPrices: Boolean(profile?.can_view_prices),
         });
+      } catch (err) {
+        setError(err?.message || "Login failed. Please try again.");
       } finally {
+        window.clearTimeout(busyWatchdog);
         setBusy(false);
       }
       return;

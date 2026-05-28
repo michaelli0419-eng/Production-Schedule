@@ -18,6 +18,11 @@ const NAV_ITEMS = [
   { id: "reports", label: "Reports", title: "Reports", description: "Reusable operating reports for leadership, sales, production, and project teams." },
   { id: "settings", label: "Settings", title: "Settings", description: "Configure lines, statuses, users, integrations, and field mappings." },
 ];
+const SCHEDULE_VIEWS = [
+  { id: "production", label: "Production", endKey: "offLine", endLabel: "Topset Complete" },
+  { id: "shipping", label: "Shipping", endKey: "end", endLabel: "Shipping" },
+  { id: "set", label: "Set", endKey: "due", endLabel: "Set" },
+];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MS_PER_DAY = 86400000;
 const HEADER_H = 72;   // increased to fit month + week row
@@ -44,7 +49,7 @@ const SAMPLE_JOBS = [
     client: "Los Angeles USD",
     line: "L1",
     start: "2026-01-05",
-    offLine: "2026-02-16",
+    offLine: "2026-02-04",
     end: "2026-02-18",
     due: "2026-02-28",
     color: "#2563eb",
@@ -80,7 +85,7 @@ const SAMPLE_JOBS = [
     client: "Riverside Unified",
     line: "L3",
     start: "2026-03-11",
-    offLine: "2026-04-22",
+    offLine: "2026-04-10",
     end: "2026-04-24",
     due: "2026-05-02",
     color: "#d97706",
@@ -98,7 +103,7 @@ const SAMPLE_JOBS = [
     client: "Fresno USD",
     line: "L4",
     start: "2026-05-04",
-    offLine: "2026-06-26",
+    offLine: "2026-06-03",
     end: "2026-06-30",
     due: "2026-06-26",
     color: "#dc2626",
@@ -116,7 +121,7 @@ const SAMPLE_JOBS = [
     client: "Oakland USD",
     line: QUEUE,
     start: "2026-07-06",
-    offLine: "2026-07-29",
+    offLine: "2026-08-05",
     end: "2026-07-31",
     due: "2026-08-07",
     color: "#7c3aed",
@@ -151,9 +156,8 @@ function addDays(dateStr, days) {
   return formatDate(d);
 }
 
-function defaultOffLineDate(start, end) {
-  if (!start || !end) return end || start || "2026-01-01";
-  return end > start ? addDays(end, -1) : end;
+function defaultTopsetCompleteDate(start) {
+  return start ? addDays(start, 30) : "2026-01-31";
 }
 
 function dateDiffDays(start, end) {
@@ -215,21 +219,53 @@ function percentBetween(start, end, value) {
   return (offset / span) * 100;
 }
 
-function getBarRange(job) {
-  const endDate = job.end > job.due ? job.end : job.due;
-  return { start: job.start, end: endDate };
+function getMilestoneDates(job) {
+  const topsetComplete = job.offLine || defaultTopsetCompleteDate(job.start);
+  return {
+    start: job.start,
+    offLine: topsetComplete,
+    end: job.end,
+    due: job.due,
+  };
 }
 
-function getBarGradient(job) {
-  const { start, end } = getBarRange(job);
-  const offLinePct = percentBetween(start, end, job.offLine || defaultOffLineDate(job.start, job.end));
-  const shipPct = percentBetween(start, end, job.end);
-  const setPct = percentBetween(start, end, job.due);
-  const stops = [offLinePct, shipPct, setPct].map((stop) => clamp(stop, 0, 100)).sort((a, b) => a - b);
-  const shades = getColorShades(job.color);
-  const soft = rgbToCss(mixRgb(hexToRgb(job.color), { r: 255, g: 255, b: 255 }, 0.12));
+function latestDate(...dates) {
+  return dates.reduce((latest, date) => date > latest ? date : latest, dates[0]);
+}
 
-  return `linear-gradient(90deg, ${shades.dark} 0%, ${shades.dark} ${stops[0]}%, ${shades.base} ${stops[0]}%, ${shades.base} ${stops[1]}%, ${soft} ${stops[1]}%, ${soft} ${stops[2]}%, ${shades.light} ${stops[2]}%, ${shades.light} 100%)`;
+function getTrackRange(job) {
+  const dates = getMilestoneDates(job);
+  return {
+    start: dates.start,
+    end: latestDate(dates.offLine, dates.end, dates.due),
+  };
+}
+
+function getScheduleEnd(job, scheduleView) {
+  const dates = getMilestoneDates(job);
+  const view = SCHEDULE_VIEWS.find((item) => item.id === scheduleView) || SCHEDULE_VIEWS[0];
+  return dates[view.endKey] || dates.offLine;
+}
+
+function getMilestoneLayout(job, scheduleView) {
+  const dates = getMilestoneDates(job);
+  const trackRange = getTrackRange(job);
+  const scheduleEnd = getScheduleEnd(job, scheduleView);
+  const view = SCHEDULE_VIEWS.find((item) => item.id === scheduleView) || SCHEDULE_VIEWS[0];
+  const schedulePct = percentBetween(trackRange.start, trackRange.end, scheduleEnd);
+  const shades = getColorShades(job.color);
+  return {
+    dates,
+    trackRange,
+    view,
+    schedulePct,
+    offLinePct: percentBetween(trackRange.start, trackRange.end, dates.offLine),
+    shipPct: percentBetween(trackRange.start, trackRange.end, dates.end),
+    setPct: percentBetween(trackRange.start, trackRange.end, dates.due),
+    coreBackground: `linear-gradient(90deg, ${shades.dark}, ${shades.base})`,
+    shippingShade: rgbToCss(mixRgb(hexToRgb(job.color), { r: 255, g: 255, b: 255 }, 0.34)),
+    setShade: rgbToCss(mixRgb(hexToRgb(job.color), { r: 255, g: 255, b: 255 }, 0.58)),
+  };
 }
 
 function normalizeJob(job, index) {
@@ -241,9 +277,8 @@ function normalizeJob(job, index) {
     start: job.start || job.start_date || "2026-01-05",
     end: job.end || job.end_date || "2026-01-19",
     due: job.due || job.due_date || job.end || job.end_date || "2026-01-19",
-    offLine: job.offLine || job.off_line || defaultOffLineDate(
+    offLine: job.offLine || job.topsetComplete || job.topset_complete || job.off_line || defaultTopsetCompleteDate(
       job.start || job.start_date || "2026-01-05",
-      job.end || job.end_date || "2026-01-19",
     ),
     color: job.color || JOB_COLORS[index % JOB_COLORS.length],
     status: STATUS_CONFIG[job.status] ? job.status : "forecast",
@@ -290,7 +325,7 @@ function parseCSV(text) {
 
 function jobsToCSV(jobs) {
   const headers = [
-    "id","name","client","line","start","offLine","end","due","color","status",
+    "id","name","client","line","start","topsetComplete","end","due","color","status",
     "modules","crew","priority","progress",
     "drawings_ready","materials_ready","permits_ready","inspections_ready","notes",
   ];
@@ -312,7 +347,7 @@ function csvRowToJob(row, index) {
       ...row,
       name: row.name || row.job_name,
       start: row.start || row.start_date,
-      offLine: row.offLine || row.off_line,
+      offLine: row.topsetComplete || row.topset_complete || row.offLine || row.off_line,
       end: row.end || row.end_date,
       due: row.due || row.due_date,
       readiness: {
@@ -358,45 +393,314 @@ function StatusChip({ status }) {
   );
 }
 
-function ModulePlaceholder({ module, jobs, kpis }) {
-  const nextSteps = {
-    dashboard: ["Backlog and booked work KPIs", "Line capacity and late-risk rollups", "Sales-to-production handoff alerts"],
-    pipeline: ["Opportunity stages and probabilities", "Estimated modules and revenue", "Convert awarded work into production jobs"],
-    projects: ["Unified project profile", "NetSuite and Procore reference fields", "Milestones from sales through site set"],
-    reports: ["Weekly production report", "Pipeline forecast report", "Late jobs and constraint report"],
-    settings: ["Production lines and capacity", "Status and priority lists", "Integration and Excel mappings"],
-  }[module.id] || [];
+const PIPELINE_STAGES = [
+  { id: "lead", label: "Lead", probability: 15 },
+  { id: "estimate", label: "Estimating", probability: 35 },
+  { id: "proposal", label: "Proposal", probability: 55 },
+  { id: "award", label: "Verbal Award", probability: 80 },
+  { id: "handoff", label: "Contract Handoff", probability: 95 },
+];
+
+function formatMoney(value) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function getProjectedRevenue(job) {
+  return job.modules * 145000;
+}
+
+function getPipelineStage(job, index) {
+  if (job.status === "forecast") return PIPELINE_STAGES[index % 3];
+  if (job.status === "hold") return PIPELINE_STAGES[2];
+  if (job.status === "approved") return PIPELINE_STAGES[3];
+  return PIPELINE_STAGES[4];
+}
+
+function integrationStatus(job) {
+  const hasNetSuite = Boolean(job.jobNumber || job.master?.contract || job.sourceType === "master");
+  const hasProcore = Boolean(job.master?.submittalsOut || job.master?.dsaStatus || job.master?.inspector);
+
+  if (hasNetSuite && hasProcore) return { label: "Linked", tone: "green" };
+  if (hasNetSuite || hasProcore) return { label: "Partial", tone: "amber" };
+  return { label: "Missing IDs", tone: "red" };
+}
+
+function ModuleWorkspace({
+  module,
+  jobs,
+  kpis,
+  risks,
+  lineUtilization,
+  excelSync,
+  onOpenProduction,
+}) {
+  const pipelineRows = jobs.map((job, index) => {
+    const stage = getPipelineStage(job, index);
+    const revenue = getProjectedRevenue(job);
+    return {
+      job,
+      stage,
+      revenue,
+      weighted: Math.round(revenue * (stage.probability / 100)),
+      closeDate: addDays(job.start, -45 - (index % 4) * 12),
+    };
+  });
+
+  const pipelineTotals = PIPELINE_STAGES.map((stage) => {
+    const rows = pipelineRows.filter((row) => row.stage.id === stage.id);
+    return {
+      ...stage,
+      count: rows.length,
+      modules: rows.reduce((sum, row) => sum + row.job.modules, 0),
+      weighted: rows.reduce((sum, row) => sum + row.weighted, 0),
+    };
+  });
+
+  const bridgeGaps = jobs
+    .map((job) => ({ job, integration: integrationStatus(job), readiness: readinessScore(job) }))
+    .filter(({ integration, readiness }) => integration.tone !== "green" || readiness < 100)
+    .slice(0, 8);
+
+  if (module.id === "dashboard") {
+    return (
+      <section className="ps-module-page" aria-label={module.title}>
+        <ModuleHead module={module} eyebrow="SCM operating bridge" />
+        <div className="ps-dashboard-grid">
+          <section className="ps-bridge-panel">
+            <div className="ps-section-head">
+              <h2>NetSuite to Procore Bridge</h2>
+              <span>{bridgeGaps.length} records need clean handoff data</span>
+            </div>
+            <div className="ps-bridge-flow">
+              {["NetSuite", "SCM Hub", "Procore"].map((system, index) => (
+                <div key={system} className={index === 1 ? "is-core" : ""}>
+                  <strong>{system}</strong>
+                  <span>
+                    {index === 0 ? "contract, customer, revenue" : index === 1 ? "schedule, risk, readiness" : "field, submittals, closeout"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="ps-alert-list">
+              {bridgeGaps.map(({ job, integration, readiness }) => (
+                <button key={job.id} type="button" onClick={() => onOpenProduction(job.id)}>
+                  <span className={`ps-status-dot is-${integration.tone}`} />
+                  <strong>{job.name}</strong>
+                  <small>{integration.label} - {readiness}% ready - ship {displayDate(job.end)}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="ps-ops-strip">
+            <MetricBlock label="Scheduled Jobs" value={kpis.jobs} detail={`${kpis.modules} modules`} />
+            <MetricBlock label="Active Production" value={kpis.production} detail="on factory lines" />
+            <MetricBlock label="Plant Utilization" value={kpis.utilization} detail="current date span" />
+            <MetricBlock label="Readiness" value={kpis.readiness} detail="average gate score" />
+          </section>
+
+          <section className="ps-table-panel">
+            <div className="ps-section-head">
+              <h2>Line Capacity</h2>
+              <span>Factory view by production line</span>
+            </div>
+            <div className="ps-line-stack">
+              {lineUtilization.map((line) => {
+                const detail = LINES.find((item) => item.id === line.line);
+                return (
+                  <div key={line.line}>
+                    <strong>{detail?.name || line.line}</strong>
+                    <span>{line.jobs} jobs - {line.modules} modules</span>
+                    <div className="ps-meter"><i style={{ width: `${line.utilization}%` }} /></div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="ps-table-panel">
+            <div className="ps-section-head">
+              <h2>Priority Risks</h2>
+              <span>Schedule and handoff exceptions</span>
+            </div>
+            <div className="ps-compact-list">
+              {risks.length ? risks.map((risk, index) => (
+                <button key={`${risk.type}-${index}`} type="button" onClick={() => risk.job && onOpenProduction(risk.job.id)}>
+                  <strong>{risk.type}</strong>
+                  <span>{risk.job?.name || risk.detail}</span>
+                  <small>{risk.job ? risk.detail : "line conflict"}</small>
+                </button>
+              )) : <p className="ps-empty">No current conflicts.</p>}
+            </div>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
+  if (module.id === "pipeline") {
+    return (
+      <section className="ps-module-page" aria-label={module.title}>
+        <ModuleHead module={module} eyebrow="Sales to production" />
+        <div className="ps-stage-board">
+          {pipelineTotals.map((stage) => (
+            <section key={stage.id} className="ps-stage-column">
+              <div className="ps-stage-head">
+                <strong>{stage.label}</strong>
+                <span>{stage.count} deals - {formatMoney(stage.weighted)}</span>
+              </div>
+              {pipelineRows.filter((row) => row.stage.id === stage.id).map(({ job, revenue, weighted, closeDate }) => (
+                <button key={job.id} type="button" className="ps-deal-card" onClick={() => onOpenProduction(job.id)}>
+                  <strong>{job.name}</strong>
+                  <span>{job.client}</span>
+                  <small>{job.modules} modules - {formatMoney(revenue)}</small>
+                  <div>
+                    <b>{formatMoney(weighted)} weighted</b>
+                    <em>{displayDate(closeDate)}</em>
+                  </div>
+                </button>
+              ))}
+            </section>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (module.id === "projects") {
+    return (
+      <section className="ps-module-page" aria-label={module.title}>
+        <ModuleHead module={module} eyebrow="Single project record" />
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Project Registry</h2>
+            <span>Shared record across sales, plant, accounting, and field teams</span>
+          </div>
+          <div className="ps-project-table">
+            <div className="ps-project-row is-header">
+              <span>Project</span><span>IDs</span><span>Phase</span><span>Dates</span><span>Bridge</span>
+            </div>
+            {jobs.map((job) => {
+              const status = integrationStatus(job);
+              return (
+                <button key={job.id} type="button" className="ps-project-row" onClick={() => onOpenProduction(job.id)}>
+                  <span><strong>{job.name}</strong><small>{job.client}</small></span>
+                  <span><strong>{job.jobNumber || "No job #"}</strong><small>{job.sourceType === "master" ? "Master Excel" : "Website"}</small></span>
+                  <span><StatusChip status={job.status} /></span>
+                  <span><strong>{displayDate(job.start)}</strong><small>ship {displayDate(job.end)}</small></span>
+                  <span><i className={`ps-pill is-${status.tone}`}>{status.label}</i></span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  if (module.id === "reports") {
+    const reports = [
+      { name: "Executive Operating Summary", owner: "Leadership", cadence: "Weekly", metric: `${kpis.jobs} jobs` },
+      { name: "Sales Forecast to Capacity", owner: "Sales + Plant", cadence: "Weekly", metric: formatMoney(pipelineRows.reduce((sum, row) => sum + row.weighted, 0)) },
+      { name: "Production Readiness Exceptions", owner: "Operations", cadence: "Daily", metric: `${bridgeGaps.length} gaps` },
+      { name: "Ship and Set Lookahead", owner: "Project Management", cadence: "Daily", metric: `${jobs.filter((job) => job.end <= addDays(formatDate(new Date()), 60)).length} upcoming` },
+    ];
+    return (
+      <section className="ps-module-page" aria-label={module.title}>
+        <ModuleHead module={module} eyebrow="Reusable reporting" />
+        <div className="ps-report-grid">
+          {reports.map((report) => (
+            <section key={report.name} className="ps-report-card">
+              <strong>{report.name}</strong>
+              <span>{report.owner}</span>
+              <div><b>{report.metric}</b><em>{report.cadence}</em></div>
+            </section>
+          ))}
+        </div>
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Current Exception Feed</h2>
+            <span>Used by dashboard, reports, and project reviews</span>
+          </div>
+          <div className="ps-compact-list">
+            {bridgeGaps.map(({ job, integration, readiness }) => (
+              <button key={job.id} type="button" onClick={() => onOpenProduction(job.id)}>
+                <strong>{integration.label}</strong>
+                <span>{job.name}</span>
+                <small>{readiness}% readiness - {job.notes || "No note entered"}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+      </section>
+    );
+  }
 
   return (
     <section className="ps-module-page" aria-label={module.title}>
-      <div className="ps-module-head">
-        <div>
-          <p className="ps-eyebrow">Operations Hub</p>
-          <h2>{module.title}</h2>
-          <span>{module.description}</span>
-        </div>
+      <ModuleHead module={module} eyebrow="System configuration" />
+      <div className="ps-settings-grid">
+        <SettingsPanel
+          title="Integration Map"
+          rows={[
+            ["NetSuite", "Customer, contract, job number, revenue", excelSync.connected ? "Connected" : "Needs connector"],
+            ["SCM Hub", "Schedule, line, readiness, risks", "Active"],
+            ["Procore", "Submittals, field dates, inspections, closeout", "Planned"],
+          ]}
+        />
+        <SettingsPanel
+          title="Production Lines"
+          rows={LINES.map((line) => [line.name, line.focus, `${lineUtilization.find((item) => item.line === line.id)?.modules || 0} modules`])}
+        />
+        <SettingsPanel
+          title="Status Workflow"
+          rows={Object.entries(STATUS_CONFIG).map(([key, value]) => [value.label, key, "Enabled"])}
+        />
       </div>
-      <div className="ps-module-grid">
-        <section>
-          <h3>Starting Point</h3>
-          <p>
-            This module will use the same project data backbone as the production schedule, so teams can move work from sales planning into factory execution without rebuilding the same information in another spreadsheet.
-          </p>
-        </section>
-        <section>
-          <h3>Current Data</h3>
-          <div className="ps-module-metrics">
-            <div><strong>{jobs.length}</strong><span>Jobs</span></div>
-            <div><strong>{kpis.modules}</strong><span>Modules</span></div>
-            <div><strong>{kpis.utilization}</strong><span>Utilization</span></div>
+    </section>
+  );
+}
+
+function ModuleHead({ module, eyebrow }) {
+  return (
+    <div className="ps-module-head">
+      <div>
+        <p className="ps-eyebrow">{eyebrow}</p>
+        <h2>{module.title}</h2>
+        <span>{module.description}</span>
+      </div>
+    </div>
+  );
+}
+
+function MetricBlock({ label, value, detail }) {
+  return (
+    <div className="ps-metric-block">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function SettingsPanel({ title, rows }) {
+  return (
+    <section className="ps-table-panel">
+      <div className="ps-section-head">
+        <h2>{title}</h2>
+      </div>
+      <div className="ps-settings-list">
+        {rows.map(([name, detail, status]) => (
+          <div key={`${title}-${name}`}>
+            <strong>{name}</strong>
+            <span>{detail}</span>
+            <small>{status}</small>
           </div>
-        </section>
-        <section>
-          <h3>Next Build Items</h3>
-          <ul>
-            {nextSteps.map((step) => <li key={step}>{step}</li>)}
-          </ul>
-        </section>
+        ))}
       </div>
     </section>
   );
@@ -418,14 +722,14 @@ function dateFieldHelp(job) {
   if (job?.sourceType === "master") {
     return {
       start: "Excel column: Topset Date",
-      offLine: "Website schedule date",
+      offLine: "Assumed Topset Date + 30 days",
       end: "Excel column: Shipping Date",
       due: "Excel column: Set Date",
     };
   }
   return {
     start: "Production work begins",
-    offLine: "Factory line completion",
+    offLine: "Assumed 30 days after Topset Date",
     end: "Planned ship date",
     due: "Site set or customer need date",
   };
@@ -471,6 +775,7 @@ export default function ProductionScheduler() {
   const [lineFilter, setLineFilter] = useState("all");
   const [summaryList, setSummaryList] = useState(null);
   const [activeModule, setActiveModule] = useState("production");
+  const [scheduleView, setScheduleView] = useState("production");
   const [dayPx, setDayPx] = useState(4);
   const [excelSync, setExcelSync] = useState({
     connected: false,
@@ -484,7 +789,10 @@ export default function ProductionScheduler() {
 
   const today = formatDate(new Date());
   const timelineRange = useMemo(() => {
-    const validDates = [today, ...jobs.flatMap((job) => [job.start, job.end, job.due])]
+    const validDates = [today, ...jobs.flatMap((job) => {
+      const dates = getMilestoneDates(job);
+      return [dates.start, dates.offLine, dates.end, dates.due];
+    })]
       .map((dateStr) => toDate(dateStr))
       .filter((date) => !Number.isNaN(date.valueOf()));
 
@@ -504,15 +812,16 @@ export default function ProductionScheduler() {
   const { totalDays } = timelineRange;
   const totalWidth = totalDays * dayPx;
 
-  // ── Auto-scroll to today on mount ────────────────────────────────────────
+  // ── Auto-scroll to today on mount and when returning to Production ───────
   useEffect(() => {
+    if (activeModule !== "production") return;
     if (!gridRef.current) return;
     const dayOffset = diffDays(timelineRange.start, toDate(today));
     const todayPx = dayOffset * dayPx;
     // Center today in the visible area, offset by ~200px for context
     const containerW = gridRef.current.clientWidth;
     gridRef.current.scrollLeft = Math.max(0, todayPx - containerW / 2 + 100);
-  }, [dayPx, timelineRange.start, today]);
+  }, [activeModule, dayPx, timelineRange.start, today]);
 
   const visibleJobs = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -756,8 +1065,7 @@ export default function ProductionScheduler() {
         if (job.id !== id) return job;
         const next = { ...job, ...patch };
         if (next.end < next.start) next.end = next.start;
-        if (!next.offLine || next.offLine < next.start) next.offLine = next.start;
-        if (next.offLine > next.end) next.offLine = defaultOffLineDate(next.start, next.end);
+        if (!next.offLine || next.offLine < next.start || patch.start) next.offLine = defaultTopsetCompleteDate(next.start);
         if (next.due < next.start) next.due = next.end;
         return next;
       }),
@@ -772,7 +1080,7 @@ export default function ProductionScheduler() {
         client: "School District",
         line,
         start: "2026-08-03",
-        offLine: "2026-08-26",
+        offLine: "2026-09-02",
         end: "2026-08-28",
         due: "2026-09-04",
         color: JOB_COLORS[nextId % JOB_COLORS.length],
@@ -791,14 +1099,16 @@ export default function ProductionScheduler() {
 
   function duplicateSelected() {
     if (!selectedJob) return;
+    const start = addDays(selectedJob.end, 7);
+    const duration = dateDiffDays(selectedJob.start, selectedJob.end) - 1;
     const copy = normalizeJob(
       {
         ...selectedJob,
         id: String(nextId++),
         name: `${selectedJob.name} Copy`,
-        start: addDays(selectedJob.end, 7),
-        offLine: addDays(selectedJob.offLine || defaultOffLineDate(selectedJob.start, selectedJob.end), 7),
-        end: addDays(selectedJob.end, 7 + dateDiffDays(selectedJob.start, selectedJob.end) - 1),
+        start,
+        offLine: defaultTopsetCompleteDate(start),
+        end: addDays(start, duration),
         due: addDays(selectedJob.due, 14),
       },
       nextId,
@@ -873,7 +1183,7 @@ export default function ProductionScheduler() {
       type: "move",
       startX: getX(e.clientX),
       origStart: job.start,
-      origOffLine: job.offLine || defaultOffLineDate(job.start, job.end),
+      origOffLine: job.offLine || defaultTopsetCompleteDate(job.start),
       origEnd: job.end,
       origDue: job.due,
     });
@@ -889,7 +1199,7 @@ export default function ProductionScheduler() {
       type: `resize-${edge}`,
       startX: getX(e.clientX),
       origStart: job.start,
-      origOffLine: job.offLine || defaultOffLineDate(job.start, job.end),
+      origOffLine: job.offLine || defaultTopsetCompleteDate(job.start),
       origEnd: job.end,
       origDue: job.due,
     });
@@ -906,17 +1216,17 @@ export default function ProductionScheduler() {
             if (drag.type === "resize-left") {
               const latestAllowedStart = addDays(drag.origOffLine < drag.origEnd ? drag.origOffLine : drag.origEnd, -1);
               const start = addDays(drag.origStart, delta);
-              return { ...job, start: start > latestAllowedStart ? latestAllowedStart : start };
+              const nextStart = start > latestAllowedStart ? latestAllowedStart : start;
+              return { ...job, start: nextStart, offLine: defaultTopsetCompleteDate(nextStart) };
             }
             if (drag.type === "resize-right") {
               const nextEnd = addDays(drag.origEnd, delta);
               const nextDue = addDays(drag.origDue, delta);
-              const nextOffLine = defaultOffLineDate(job.start, nextEnd);
               const minEnd = addDays(job.start, 1);
               if (drag.origDue > drag.origEnd) {
                 return { ...job, due: nextDue < minEnd ? minEnd : nextDue };
               }
-              return { ...job, offLine: nextOffLine, end: nextEnd < minEnd ? minEnd : nextEnd };
+              return { ...job, end: nextEnd < minEnd ? minEnd : nextEnd };
             }
             const duration = dateDiffDays(drag.origStart, drag.origEnd) - 1;
             const start = addDays(drag.origStart, delta);
@@ -961,7 +1271,7 @@ export default function ProductionScheduler() {
             client: "School District",
             line: drawing.line,
             start: startDate,
-            offLine: defaultOffLineDate(startDate, endDate),
+            offLine: defaultTopsetCompleteDate(startDate),
             end: endDate,
             due: addDays(endDate, 7),
             color: JOB_COLORS[nextId % JOB_COLORS.length],
@@ -1097,6 +1407,19 @@ export default function ProductionScheduler() {
           {LINES.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           <option value={QUEUE}>Queue</option>
         </select>
+        <div className="ps-schedule-tabs" role="group" aria-label="Schedule view">
+          {SCHEDULE_VIEWS.map((view) => (
+            <button
+              key={view.id}
+              type="button"
+              className={scheduleView === view.id ? "is-active" : ""}
+              onClick={() => setScheduleView(view.id)}
+              title={`Show ${view.label.toLowerCase()} schedule dates`}
+            >
+              {view.label}
+            </button>
+          ))}
+        </div>
         <button className="ps-today-btn" type="button" onClick={scrollToToday} title="Jump to today">
           Today
         </button>
@@ -1207,25 +1530,39 @@ export default function ProductionScheduler() {
                 const lineIndex = LINE_IDS.indexOf(job.line);
                 const hasOverlap = overlaps.some((o) => o.jobs.includes(job.id));
                 const late = job.end > job.due;
-                const barRange = getBarRange(job);
-                const width = Math.max(30, dateDiffDays(barRange.start, barRange.end) * dayPx);
-                const offLineDate = job.offLine || defaultOffLineDate(job.start, job.end);
-                const offLinePct = percentBetween(barRange.start, barRange.end, offLineDate);
-                const shipPct = percentBetween(barRange.start, barRange.end, job.end);
-                const setPct = percentBetween(barRange.start, barRange.end, job.due);
+                const layout = getMilestoneLayout(job, scheduleView);
+                const width = Math.max(30, dateDiffDays(layout.trackRange.start, layout.trackRange.end) * dayPx);
+                const scheduleWidth = `${Math.max(4, layout.schedulePct)}%`;
+                const shipShadeLeft = `${Math.min(layout.offLinePct, layout.shipPct)}%`;
+                const shipShadeWidth = `${Math.abs(layout.shipPct - layout.offLinePct)}%`;
+                const setShadeLeft = `${Math.min(layout.shipPct, layout.setPct)}%`;
+                const setShadeWidth = `${Math.abs(layout.setPct - layout.shipPct)}%`;
                 return (
                   <div
                     className={`ps-job ${selectedId === job.id ? "is-selected" : ""} ${hasOverlap ? "has-overlap" : ""}`}
                     key={job.id}
                     style={{
                       top: HEADER_H + lineIndex * ROW_H + 16,
-                      left: dateToX(barRange.start),
+                      left: dateToX(layout.trackRange.start),
                       width,
-                      background: getBarGradient(job),
                     }}
-                    title={`${job.name}\nTopset: ${displayDate(job.start)}\nOff the Line: ${displayDate(offLineDate)}\nShipping: ${displayDate(job.end)}\nSet: ${displayDate(job.due)}\n${job.modules} modules`}
+                    title={`${job.name}\n${layout.view.endLabel} view\nTopset: ${displayDate(layout.dates.start)}\nTopset Complete: ${displayDate(layout.dates.offLine)}\nShipping: ${displayDate(layout.dates.end)}\nSet: ${displayDate(layout.dates.due)}\n${job.modules} modules`}
                     onMouseDown={(e) => startDrag(e, job.id)}
                   >
+                    <i
+                      className="ps-job-shade ps-job-shade-ship"
+                      style={{ left: shipShadeLeft, width: shipShadeWidth, background: layout.shippingShade }}
+                      title={`Shipping: ${displayDate(layout.dates.end)}`}
+                    />
+                    <i
+                      className="ps-job-shade ps-job-shade-set"
+                      style={{ left: setShadeLeft, width: setShadeWidth, background: layout.setShade }}
+                      title={`Set: ${displayDate(layout.dates.due)}`}
+                    />
+                    <i
+                      className="ps-job-core"
+                      style={{ width: scheduleWidth, background: layout.coreBackground }}
+                    />
                     <button
                       aria-label={`Resize ${job.name} start date`}
                       className="ps-job-resize ps-job-resize-left"
@@ -1238,16 +1575,18 @@ export default function ProductionScheduler() {
                       type="button"
                       onMouseDown={(e) => startResize(e, job.id, "right")}
                     />
-                    <i className="ps-date-line ps-date-line-topset" style={{ left: "0%" }} title={`Topset: ${displayDate(job.start)}`} />
-                    <i className="ps-date-line ps-date-line-offline" style={{ left: `${offLinePct}%` }} title={`Off the Line: ${displayDate(offLineDate)}`}>
-                      <span>Off Line</span>
+                    <i className="ps-date-line ps-date-line-topset" style={{ left: "0%" }} title={`Topset: ${displayDate(layout.dates.start)}`} />
+                    <i className="ps-date-line ps-date-line-offline" style={{ left: `${layout.offLinePct}%` }} title={`Topset Complete: ${displayDate(layout.dates.offLine)}`}>
+                      <span>Topset Complete</span>
                     </i>
-                    <i className="ps-date-line ps-date-line-ship" style={{ left: `${shipPct}%` }} title={`Ship: ${displayDate(job.end)}`}>
+                    <i className="ps-date-line ps-date-line-ship" style={{ left: `${layout.shipPct}%` }} title={`Ship: ${displayDate(layout.dates.end)}`}>
                       <span>Shipping</span>
                     </i>
-                    <i className="ps-date-line ps-date-line-set" style={{ left: `${setPct}%` }} title={`Set: ${displayDate(job.due)}`} />
+                    <i className="ps-date-line ps-date-line-set" style={{ left: `${layout.setPct}%` }} title={`Set: ${displayDate(layout.dates.due)}`}>
+                      <span>Set</span>
+                    </i>
                     <span>{job.name}</span>
-                    <small>Ship {displayDate(job.end)} · {job.modules} mod</small>
+                    <small>{layout.view.endLabel} {displayDate(getScheduleEnd(job, scheduleView))} · {job.modules} mod</small>
                     <b style={{ width: `${job.progress}%` }} />
                     {(hasOverlap || late) && <em>{hasOverlap ? "!" : "Late"}</em>}
                   </div>
@@ -1323,8 +1662,8 @@ export default function ProductionScheduler() {
                       <input type="date" value={selectedJob.start} onChange={(e) => updateJob(selectedJob.id, { start: e.target.value })} />
                     </label>
                     <label>
-                      <span>Off the Line<small>{selectedDateHelp.offLine}</small></span>
-                      <input type="date" value={selectedJob.offLine || defaultOffLineDate(selectedJob.start, selectedJob.end)} onChange={(e) => updateJob(selectedJob.id, { offLine: e.target.value })} />
+                      <span>Topset Complete Date<small>{selectedDateHelp.offLine}</small></span>
+                      <input type="date" value={selectedJob.offLine || defaultTopsetCompleteDate(selectedJob.start)} onChange={(e) => updateJob(selectedJob.id, { offLine: e.target.value })} />
                     </label>
                     <label>
                       <span>Shipping Date<small>{selectedDateHelp.end}</small></span>
@@ -1527,7 +1866,20 @@ export default function ProductionScheduler() {
       </div>
       </>
       ) : (
-        <ModulePlaceholder module={activeModuleConfig} jobs={jobs} kpis={kpis} />
+        <ModuleWorkspace
+          module={activeModuleConfig}
+          jobs={jobs}
+          kpis={kpis}
+          risks={risks}
+          lineUtilization={lineUtilization}
+          excelSync={excelSync}
+          onOpenProduction={(jobId) => {
+            setSelectedId(jobId);
+            setStatusFilter("all");
+            setLineFilter("all");
+            setActiveModule("production");
+          }}
+        />
       )}
 
       {toast && <div className="ps-toast">{toast}</div>}

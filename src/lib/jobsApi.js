@@ -13,9 +13,8 @@ function addDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function defaultOffLineDate(start, end) {
-  if (!start || !end) return end || start || "2026-01-01";
-  return end > start ? addDays(end, -1) : end;
+function defaultTopsetCompleteDate(start) {
+  return start ? addDays(start, 30) : "2026-01-31";
 }
 
 // ─── DB row → JS job ─────────────────────────────────────────────────────────
@@ -28,7 +27,7 @@ export function dbRowToJob(row) {
     client:     row.client       ?? "",
     line:       row.line_id      ?? "L1",
     start:      row.start_date,           // already a string from Supabase
-    offLine:    defaultOffLineDate(row.start_date, row.end_date),
+    offLine:    defaultTopsetCompleteDate(row.start_date),
     end:        row.end_date,
     due:        row.due_date     ?? row.end_date,
     color:      row.color        ?? "#2563eb",

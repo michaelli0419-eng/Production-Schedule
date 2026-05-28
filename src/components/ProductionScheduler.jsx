@@ -947,6 +947,35 @@ function readinessScore(job) {
   return Math.round((values.filter(Boolean).length / values.length) * 100);
 }
 
+function getPriorityWeight(priority) {
+  const value = String(priority || "").toLowerCase();
+  if (value === "critical") return 40;
+  if (value === "high") return 30;
+  if (value === "medium") return 20;
+  return 10;
+}
+
+function getQueueReadinessBucket(score) {
+  if (score >= 85) return { label: "Ready now", tone: "green" };
+  if (score >= 55) return { label: "Ready with risks", tone: "amber" };
+  return { label: "Blocked", tone: "red" };
+}
+
+function queueUrgencyPoints(job, today) {
+  const daysUntilDue = diffDays(toDate(today), toDate(job.due));
+  if (daysUntilDue <= 7) return 30;
+  if (daysUntilDue <= 21) return 20;
+  if (daysUntilDue <= 45) return 12;
+  return 6;
+}
+
+function queueRiskPenalty(job) {
+  let penalty = 0;
+  if (job.status === "hold") penalty += 20;
+  if (job.status === "delayed") penalty += 24;
+  return penalty;
+}
+
 function displayDate(dateStr) {
   if (!dateStr) return "Not set";
   const d = toDate(dateStr);
@@ -994,7 +1023,7 @@ function buildWeekTicks(dayPx, timelineStart, timelineEnd) {
 export default function ProductionScheduler({ currentUser, permissions, onLogout }) {
   const {
     jobs,
-    setJobs,
+    setJobs: persistJobs,
     setJobsBulk,
     loading: dbLoading,
     dbError,
@@ -1009,6 +1038,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
 
   const [selectedId, setSelectedId] = useState(null);
   const [dragging, setDragging] = useState(null);
+  const [draggedQueueJobId, setDraggedQueueJobId] = useState(null);
   const [drawing, setDrawing] = useState(null);
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
@@ -1018,6 +1048,8 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const [activeModule, setActiveModule] = useState("production");
   const [scheduleView, setScheduleView] = useState("production");
   const [dayPx, setDayPx] = useState(4);
+  const [simulationMode, setSimulationMode] = useState(false);
+  const [simulationJobs, setSimulationJobs] = useState(null);
   const [excelSync, setExcelSync] = useState({
     connected: false,
     busy: false,
@@ -1032,8 +1064,19 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const jobsRef = useRef(jobs);
 
   const today = formatDate(new Date());
+  const workingJobs = simulationMode ? (simulationJobs || jobs) : jobs;
+  const setJobs = useCallback((updaterOrValue) => {
+    if (simulationMode) {
+      setSimulationJobs((current) => {
+        const base = current || jobs;
+        return typeof updaterOrValue === "function" ? updaterOrValue(base) : updaterOrValue;
+      });
+      return;
+    }
+    persistJobs(updaterOrValue);
+  }, [jobs, persistJobs, simulationMode]);
   const timelineRange = useMemo(() => {
-    const validDates = [today, ...jobs.flatMap((job) => {
+    const validDates = [today, ...workingJobs.flatMap((job) => {
       const dates = getMilestoneDates(job);
       return [dates.start, dates.offLine, dates.end, dates.due];
     })]
@@ -1052,7 +1095,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       endYear: end.getFullYear(),
       totalDays: diffDays(start, end) + 1,
     };
-  }, [jobs, today]);
+  }, [today, workingJobs]);
   const { totalDays } = timelineRange;
   const totalWidth = totalDays * dayPx;
 
@@ -1069,22 +1112,22 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
 
   const visibleJobs = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return jobs.filter((job) => {
+    return workingJobs.filter((job) => {
       const matchesText = !term || `${job.name} ${job.client} ${job.notes}`.toLowerCase().includes(term);
       const matchesStatus = statusFilter === "all" || job.status === statusFilter;
       const matchesLine = lineFilter === "all" || job.line === lineFilter;
       return matchesText && matchesStatus && matchesLine;
     });
-  }, [jobs, lineFilter, search, statusFilter]);
+  }, [lineFilter, search, statusFilter, workingJobs]);
 
   const scheduledJobs = visibleJobs.filter((job) => LINE_IDS.includes(job.line));
   const queuedJobs = visibleJobs.filter((job) => job.line === QUEUE);
-  const selectedJob = jobs.find((job) => job.id === selectedId) || null;
+  const selectedJob = workingJobs.find((job) => job.id === selectedId) || null;
   const selectedDateHelp = dateFieldHelp(selectedJob);
 
   useEffect(() => {
-    jobsRef.current = jobs;
-  }, [jobs]);
+    jobsRef.current = workingJobs;
+  }, [workingJobs]);
 
   useEffect(() => {
     dragRef.current = dragging;
@@ -1130,16 +1173,18 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const overlaps = useMemo(() => {
     const result = [];
     for (const line of LINE_IDS) {
-      const lineJobs = jobs.filter((j) => j.line === line);
+      const lineJobs = workingJobs.filter((j) => j.line === line);
       for (let i = 0; i < lineJobs.length; i++) {
         for (let k = i + 1; k < lineJobs.length; k++) {
           const a = lineJobs[i];
           const b = lineJobs[k];
-          if (rangesOverlap(a.start, a.end, b.start, b.end)) {
+          const aRange = getTrackRange(a, scheduleView);
+          const bRange = getTrackRange(b, scheduleView);
+          if (rangesOverlap(aRange.start, aRange.end, bRange.start, bRange.end)) {
             result.push({
               line,
-              start: a.start > b.start ? a.start : b.start,
-              end: a.end < b.end ? a.end : b.end,
+              start: aRange.start > bRange.start ? aRange.start : bRange.start,
+              end: aRange.end < bRange.end ? aRange.end : bRange.end,
               jobs: [a.id, b.id],
               names: [a.name, b.name],
             });
@@ -1148,13 +1193,16 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       }
     }
     return result;
-  }, [jobs]);
+  }, [scheduleView, workingJobs]);
 
   const lineUtilization = useMemo(
     () =>
       LINE_IDS.map((line) => {
-        const lineJobs = jobs.filter((j) => j.line === line);
-        const usedDays = lineJobs.reduce((sum, j) => sum + dateDiffDays(j.start, j.end), 0);
+        const lineJobs = workingJobs.filter((j) => j.line === line);
+        const usedDays = lineJobs.reduce((sum, j) => {
+          const range = getTrackRange(j, scheduleView);
+          return sum + dateDiffDays(range.start, range.end);
+        }, 0);
         const modules = lineJobs.reduce((sum, j) => sum + j.modules, 0);
         return {
           line,
@@ -1163,12 +1211,12 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           jobs: lineJobs.length,
         };
       }),
-    [jobs, totalDays],
+    [scheduleView, totalDays, workingJobs],
   );
 
   const risks = useMemo(() => {
     const riskList = [];
-    jobs.forEach((job) => {
+    workingJobs.forEach((job) => {
       if (LINE_IDS.includes(job.line) && job.end > job.due) {
         riskList.push({ type: "Late", job, detail: `${dateDiffDays(job.due, job.end)} days past set date` });
       }
@@ -1183,9 +1231,63 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       riskList.push({ type: "Overlap", detail: `${o.line}: ${o.names.join(" / ")}`, job: null });
     });
     return riskList.slice(0, 8);
-  }, [jobs, overlaps]);
+  }, [overlaps, workingJobs]);
 
   const kpis = useMemo(() => {
+    const scheduled = workingJobs.filter((j) => LINE_IDS.includes(j.line));
+    const totalModules = workingJobs.reduce((sum, j) => sum + j.modules, 0);
+    const avgReadiness = Math.round(workingJobs.reduce((sum, j) => sum + readinessScore(j), 0) / Math.max(1, workingJobs.length));
+    return {
+      jobs: workingJobs.length,
+      modules: totalModules,
+      production: workingJobs.filter((j) => j.status === "production").length,
+      queued: workingJobs.filter((j) => j.line === QUEUE).length,
+      readiness: `${avgReadiness}%`,
+      utilization: `${Math.round(scheduled.reduce((sum, j) => sum + dateDiffDays(j.start, j.end), 0) / (totalDays * LINE_IDS.length) * 100)}%`,
+    };
+  }, [totalDays, workingJobs]);
+
+  const summaryJobs = useMemo(() => {
+    if (!summaryList) return [];
+
+    if (summaryList === "production") return workingJobs.filter((j) => j.status === "production");
+    if (summaryList === "queued") return workingJobs.filter((j) => j.line === QUEUE);
+    if (summaryList === "jobs") return workingJobs;
+    if (summaryList === "readiness") return workingJobs.filter((j) => readinessScore(j) < 100);
+
+    return [];
+  }, [summaryList, workingJobs]);
+
+  const queuedRankedJobs = useMemo(() => {
+    return queuedJobs
+      .map((job) => {
+        const readiness = readinessScore(job);
+        const score = getPriorityWeight(job.priority) + queueUrgencyPoints(job, today) + readiness - queueRiskPenalty(job);
+        return {
+          ...job,
+          queueScore: score,
+          readiness,
+          queueBucket: getQueueReadinessBucket(readiness),
+        };
+      })
+      .sort((a, b) => b.queueScore - a.queueScore);
+  }, [queuedJobs, today]);
+
+  const bestLineByQueueJob = useMemo(() => {
+    const result = {};
+    queuedRankedJobs.forEach((job) => {
+      const rankedLines = LINE_IDS.map((line) => {
+        const lineJobs = workingJobs.filter((j) => j.line === line);
+        const overlapCount = lineJobs.filter((j) => rangesOverlap(job.start, job.end, j.start, j.end)).length;
+        const utilization = lineUtilization.find((u) => u.line === line)?.utilization || 0;
+        return { line, score: overlapCount * 100 + utilization };
+      }).sort((a, b) => a.score - b.score);
+      result[job.id] = rankedLines[0]?.line || "L1";
+    });
+    return result;
+  }, [lineUtilization, queuedRankedJobs, workingJobs]);
+
+  const baselineKpis = useMemo(() => {
     const scheduled = jobs.filter((j) => LINE_IDS.includes(j.line));
     const totalModules = jobs.reduce((sum, j) => sum + j.modules, 0);
     const avgReadiness = Math.round(jobs.reduce((sum, j) => sum + readinessScore(j), 0) / Math.max(1, jobs.length));
@@ -1194,21 +1296,23 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       modules: totalModules,
       production: jobs.filter((j) => j.status === "production").length,
       queued: jobs.filter((j) => j.line === QUEUE).length,
-      readiness: `${avgReadiness}%`,
-      utilization: `${Math.round(scheduled.reduce((sum, j) => sum + dateDiffDays(j.start, j.end), 0) / (totalDays * LINE_IDS.length) * 100)}%`,
+      readiness: avgReadiness,
+      utilization: Math.round(scheduled.reduce((sum, j) => sum + dateDiffDays(j.start, j.end), 0) / (totalDays * LINE_IDS.length) * 100),
+      overlapCount: (() => {
+        let count = 0;
+        for (const line of LINE_IDS) {
+          const lineJobs = jobs.filter((j) => j.line === line);
+          for (let i = 0; i < lineJobs.length; i += 1) {
+            for (let k = i + 1; k < lineJobs.length; k += 1) {
+              if (rangesOverlap(lineJobs[i].start, lineJobs[i].end, lineJobs[k].start, lineJobs[k].end)) count += 1;
+            }
+          }
+        }
+        return count;
+      })(),
+      lateCount: jobs.filter((j) => LINE_IDS.includes(j.line) && j.end > j.due).length,
     };
   }, [jobs, totalDays]);
-
-  const summaryJobs = useMemo(() => {
-    if (!summaryList) return [];
-
-    if (summaryList === "production") return jobs.filter((j) => j.status === "production");
-    if (summaryList === "queued") return jobs.filter((j) => j.line === QUEUE);
-    if (summaryList === "jobs") return jobs;
-    if (summaryList === "readiness") return jobs.filter((j) => readinessScore(j) < 100);
-
-    return [];
-  }, [jobs, summaryList]);
 
   const summaryTitle = {
     jobs: "All Jobs",
@@ -1456,7 +1560,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   }
 
   function exportCSV() {
-    const url = URL.createObjectURL(new Blob([jobsToCSV(jobs)], { type: "text/csv" }));
+    const url = URL.createObjectURL(new Blob([jobsToCSV(workingJobs)], { type: "text/csv" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = "production_schedule.csv";
@@ -1465,12 +1569,53 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     showToast("CSV exported");
   }
 
+  function moveQueueJobToLine(jobId, line, droppedStart) {
+    setJobs((current) =>
+      current.map((job) => {
+        if (job.id !== jobId) return job;
+        const start = droppedStart || job.start;
+        const offLineDelta = diffDays(toDate(job.start), toDate(job.offLine || defaultTopsetCompleteDate(job.start)));
+        const endDelta = diffDays(toDate(job.start), toDate(job.end));
+        const dueDelta = diffDays(toDate(job.start), toDate(job.due));
+        return {
+          ...job,
+          line,
+          start,
+          offLine: addDays(start, offLineDelta),
+          end: addDays(start, endDelta),
+          due: addDays(start, dueDelta),
+          status: job.status === "forecast" ? "approved" : job.status,
+        };
+      }),
+    );
+  }
+
+  function onTimelineDragOver(e) {
+    if (!draggedQueueJobId) return;
+    e.preventDefault();
+  }
+
+  function onTimelineDrop(e) {
+    if (!draggedQueueJobId) return;
+    e.preventDefault();
+    const line = getLineFromY(e.clientY);
+    if (!line) {
+      setDraggedQueueJobId(null);
+      return;
+    }
+    const start = xToDate(getX(e.clientX));
+    moveQueueJobToLine(draggedQueueJobId, line, start);
+    setSelectedId(draggedQueueJobId);
+    setDraggedQueueJobId(null);
+    showToast(`Queued job moved to ${line}`);
+  }
+
   function onGridMouseDown(e) {
     if (e.button !== 0) return;
     const line = getLineFromY(e.clientY);
     if (!line) return;
     const date = xToDate(getX(e.clientX));
-    const hit = jobs.find((j) => j.line === line && date >= j.start && date <= j.end);
+    const hit = workingJobs.find((j) => j.line === line && date >= j.start && date <= j.end);
     if (hit) { setSelectedId(hit.id); return; }
     setSelectedId(null);
     const startX = getX(e.clientX);
@@ -1481,7 +1626,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     e.preventDefault();
     e.stopPropagation();
     setSelectedId(jobId);
-    const job = jobs.find((j) => j.id === jobId);
+    const job = workingJobs.find((j) => j.id === jobId);
     setDragging({
       jobId,
       type: "move",
@@ -1497,7 +1642,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     e.preventDefault();
     e.stopPropagation();
     setSelectedId(jobId);
-    const job = jobs.find((j) => j.id === jobId);
+    const job = workingJobs.find((j) => j.id === jobId);
     setDragging({
       jobId,
       type: `resize-${edge}`,
@@ -1609,6 +1754,38 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     };
   }, [dayPx, drawing, getX, scheduleView, xToDate]);
 
+  const simulationDelta = useMemo(() => {
+    if (!simulationMode) return null;
+    return {
+      jobs: kpis.jobs - baselineKpis.jobs,
+      queued: kpis.queued - baselineKpis.queued,
+      utilization: Number.parseInt(kpis.utilization, 10) - baselineKpis.utilization,
+      readiness: Number.parseInt(kpis.readiness, 10) - baselineKpis.readiness,
+      overlaps: overlaps.length - baselineKpis.overlapCount,
+      late: workingJobs.filter((j) => LINE_IDS.includes(j.line) && j.end > j.due).length - baselineKpis.lateCount,
+    };
+  }, [baselineKpis, kpis, overlaps.length, simulationMode, workingJobs]);
+
+  function toggleSimulationMode() {
+    if (simulationMode) {
+      setSimulationMode(false);
+      setSimulationJobs(null);
+      showToast("Simulation discarded");
+      return;
+    }
+    setSimulationJobs(jobs.map((job) => ({ ...job, readiness: { ...job.readiness }, master: { ...job.master } })));
+    setSimulationMode(true);
+    showToast("Simulation mode on");
+  }
+
+  function applySimulation() {
+    if (!simulationMode || !simulationJobs) return;
+    persistJobs(simulationJobs);
+    setSimulationMode(false);
+    setSimulationJobs(null);
+    showToast("Simulation applied");
+  }
+
   // ── Loading state ───────────────────────────────────────────────────────
   if (dbLoading) {
     return (
@@ -1657,6 +1834,10 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
               <Button tone="quiet" onClick={() => fileRef.current?.click()}>Import CSV</Button>
               <Button tone="quiet" onClick={syncFromExcel} disabled={excelSync.busy}>Sync Excel</Button>
               <Button tone="quiet" onClick={saveToExcel} disabled={excelSync.busy}>Save Excel</Button>
+              <Button tone={simulationMode ? "dark" : "quiet"} onClick={toggleSimulationMode}>
+                {simulationMode ? "Discard Sim" : "Simulate"}
+              </Button>
+              {simulationMode && <Button onClick={applySimulation}>Apply Sim</Button>}
               <Button tone="dark" onClick={exportCSV}>Export</Button>
             </>
           )}
@@ -1761,11 +1942,23 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           <strong>{isSupabase ? (dbError ? "DB error" : "DB live") : "DB offline"}</strong>
           <span>
             {isSupabase
-              ? (dbError ? dbError.slice(0, 40) : `${jobs.length} jobs synced`)
+              ? (dbError ? dbError.slice(0, 40) : `${workingJobs.length} jobs ${simulationMode ? "in simulation" : "synced"}`)
               : "Add .env.local to enable"}
           </span>
         </div>
       </section>
+
+      {simulationMode && simulationDelta && (
+        <section className="ps-sim-summary" aria-label="Simulation impact summary">
+          <strong>Simulation Impact</strong>
+          <span>Jobs {simulationDelta.jobs >= 0 ? "+" : ""}{simulationDelta.jobs}</span>
+          <span>Queued {simulationDelta.queued >= 0 ? "+" : ""}{simulationDelta.queued}</span>
+          <span>Util {simulationDelta.utilization >= 0 ? "+" : ""}{simulationDelta.utilization}%</span>
+          <span>Readiness {simulationDelta.readiness >= 0 ? "+" : ""}{simulationDelta.readiness}%</span>
+          <span>Overlaps {simulationDelta.overlaps >= 0 ? "+" : ""}{simulationDelta.overlaps}</span>
+          <span>Late {simulationDelta.late >= 0 ? "+" : ""}{simulationDelta.late}</span>
+        </section>
+      )}
 
       {/* ── Main Workspace ──────────────────────────────────────────────── */}
       <div className="ps-workspace">
@@ -1789,7 +1982,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           </div>
 
           {/* Scrollable timeline */}
-          <div className="ps-timeline" ref={gridRef} onMouseDown={onGridMouseDown}>
+          <div className="ps-timeline" ref={gridRef} onMouseDown={onGridMouseDown} onDragOver={onTimelineDragOver} onDrop={onTimelineDrop}>
             <div
               className="ps-canvas"
               style={{ width: totalWidth, height: HEADER_H + LINE_IDS.length * ROW_H }}
@@ -1923,6 +2116,13 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                     <span>{`${job.jobNumber || "No job #"} · ${job.client || "No client"}`}</span>
                     <small>{job.name}</small>
                     <b style={{ width: `${job.progress}%` }} />
+                    {dragging?.jobId === job.id && (
+                      <div className="ps-drag-impact">
+                        <span>{Math.max(0, dateDiffDays(job.due, job.end))}d late</span>
+                        <span>{overlaps.filter((o) => o.jobs.includes(job.id)).length} overlaps</span>
+                        <span>{readinessScore(job)}% ready</span>
+                      </div>
+                    )}
                     {(hasOverlap || late) && <em>{hasOverlap ? "!" : "Late"}</em>}
                   </div>
                 );
@@ -2184,12 +2384,42 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           <section className="ps-panel">
             <h2>Unscheduled Queue</h2>
             <div className="ps-queue">
-              {queuedJobs.length ? (
-                queuedJobs.map((job) => (
-                  <button key={job.id} type="button" onClick={() => setSelectedId(job.id)}>
+              {queuedRankedJobs.length ? (
+                queuedRankedJobs.map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    draggable
+                    onDragStart={() => setDraggedQueueJobId(job.id)}
+                    onDragEnd={() => setDraggedQueueJobId(null)}
+                    onClick={() => setSelectedId(job.id)}
+                  >
                     <i style={{ background: job.color }} />
                     <span>{job.name}</span>
-                    <small>{job.modules} modules</small>
+                    <small>{job.modules} modules · score {job.queueScore}</small>
+                    <small className={`ps-queue-badge is-${job.queueBucket.tone}`}>{job.queueBucket.label}</small>
+                    <small>Best line: {bestLineByQueueJob[job.id] || "L1"}</small>
+                    <small>
+                      <span
+                        className="ps-mini-btn"
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveQueueJobToLine(job.id, bestLineByQueueJob[job.id] || "L1");
+                          showToast(`Moved to ${bestLineByQueueJob[job.id] || "L1"}`);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter" && e.key !== " ") return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          moveQueueJobToLine(job.id, bestLineByQueueJob[job.id] || "L1");
+                          showToast(`Moved to ${bestLineByQueueJob[job.id] || "L1"}`);
+                        }}
+                      >
+                        Place on best line
+                      </span>
+                    </small>
                   </button>
                 ))
               ) : (
@@ -2203,7 +2433,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       ) : (
         <ModuleWorkspace
           module={activeModuleConfig}
-          jobs={jobs}
+          jobs={workingJobs}
           pipelineDeals={pipelineDeals}
           kpis={kpis}
           risks={risks}

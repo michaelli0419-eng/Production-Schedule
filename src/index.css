@@ -494,6 +494,32 @@ body {
 .ps-sync-status.is-connected strong { color: #059669; }
 .ps-sync-status.is-connected span   { color: #64748b; }
 
+.ps-sim-summary {
+  margin: 0 18px 8px;
+  padding: 8px 10px;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ps-sim-summary strong {
+  font-size: 11px;
+  color: #1d4ed8;
+  margin-right: 8px;
+}
+
+.ps-sim-summary span {
+  font-size: 11px;
+  color: #1e3a8a;
+  background: #dbeafe;
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
 .ps-module-page {
   flex: 1;
   min-height: 0;
@@ -1309,6 +1335,23 @@ body {
   transition: width 0.3s;
   z-index: 2;
 }
+.ps-drag-impact {
+  position: absolute;
+  top: -26px;
+  left: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 12;
+}
+.ps-drag-impact span {
+  font-size: 9px;
+  font-weight: 700;
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 2px 6px;
+}
 .ps-date-line {
   position: absolute;
   top: 4px;
@@ -1657,6 +1700,20 @@ body {
 .ps-queue button i     { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .ps-queue button span  { font-size: 11px; color: #1e293b; font-weight: 500; flex: 1; }
 .ps-queue button small { font-size: 10px; color: #94a3b8; }
+.ps-queue button[draggable="true"] { cursor: grab; }
+.ps-queue-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9px !important;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.ps-queue-badge.is-green { color: #065f46 !important; background: #d1fae5; }
+.ps-queue-badge.is-amber { color: #92400e !important; background: #fef3c7; }
+.ps-queue-badge.is-red { color: #991b1b !important; background: #fee2e2; }
 
 /* ── Empty state ──────────────────────────────────────────────────────────── */
 .ps-empty { font-size: 11px; color: #cbd5e1; padding: 6px 0; line-height: 1.6; }

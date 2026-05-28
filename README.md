@@ -11,13 +11,23 @@ npm run dev
 npm run dev:excel
 ```
 
-The sync server reads and writes this workbook by default:
+The sync server reads and writes these workbooks by default:
 
 ```text
 C:\Users\Michael Li\OneDrive - Webb Family Enterprises\SCM AI\SCM Production Schedule - Master Excel (1).xlsx
+C:\Users\Michael Li\OneDrive - Webb Family Enterprises\SCM AI\SCM Sales & Engineering Pipeline.xlsx
 ```
 
 Use `Sync Excel` in the app to load the `On Line Upcoming` sheet into the scheduler. The app reads the Line 1-4 sections and maps Topset Date, Shipping Date, and Set Date into the timeline. Use `Save Excel` to update the same master workbook rows. New website-only jobs are saved to a `Website Additions` sheet so the master schedule layout is not damaged. Close the workbook in desktop Excel before saving if Excel locks the file.
+
+Use `Sync Sales Excel` in the Sales Pipeline module to import pipeline deals from `/api/pipeline`, and `Save Sales Excel` to write updates back.
+
+Environment overrides for the sync server:
+
+- `PRODUCTION_SCHEDULE_XLSX`
+- `PRODUCTION_SCHEDULE_SHEET`
+- `SALES_PIPELINE_XLSX`
+- `SALES_PIPELINE_SHEET`
 
 Currently, two official plugins are available:
 

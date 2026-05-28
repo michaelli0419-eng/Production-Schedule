@@ -7,13 +7,15 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "dev:excel": "cd excel-server && npm start",
+    "dev:excel": "node server/excel-sync-server.mjs",
+    "dev:excel:legacy": "cd excel-server && npm start",
     "setup:excel": "cd excel-server && npm install"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

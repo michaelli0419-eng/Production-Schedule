@@ -87,6 +87,25 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS sales_pipeline_deals (
+  id                   TEXT PRIMARY KEY,
+  opportunity_name     TEXT NOT NULL,
+  client               TEXT,
+  stage                TEXT NOT NULL DEFAULT 'lead',
+  probability          INT  NOT NULL DEFAULT 15 CHECK (probability >= 0 AND probability <= 100),
+  amount               NUMERIC(14,2) NOT NULL DEFAULT 0,
+  weighted_amount      NUMERIC(14,2) NOT NULL DEFAULT 0,
+  expected_close_date  DATE,
+  estimator            TEXT,
+  project_manager      TEXT,
+  notes                TEXT,
+  source_type          TEXT,
+  source_sheet         TEXT,
+  source_row           INT,
+  created_at           TIMESTAMPTZ DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ DEFAULT NOW()
+);
+
 
 -- ─── Auto-update updated_at ───────────────────────────────────────────────────
 
@@ -101,6 +120,11 @@ $$;
 DROP TRIGGER IF EXISTS jobs_set_updated_at ON jobs;
 CREATE TRIGGER jobs_set_updated_at
   BEFORE UPDATE ON jobs
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS sales_pipeline_deals_set_updated_at ON sales_pipeline_deals;
+CREATE TRIGGER sales_pipeline_deals_set_updated_at
+  BEFORE UPDATE ON sales_pipeline_deals
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 
@@ -120,10 +144,12 @@ CREATE INDEX IF NOT EXISTS idx_jobs_job_number   ON jobs (job_number);
 
 ALTER TABLE jobs             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE production_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sales_pipeline_deals ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies before re-creating (safe to re-run)
 DROP POLICY IF EXISTS "scm_jobs_all"             ON jobs;
 DROP POLICY IF EXISTS "scm_production_lines_all" ON production_lines;
+DROP POLICY IF EXISTS "scm_sales_pipeline_all"   ON sales_pipeline_deals;
 
 CREATE POLICY "scm_jobs_all"
   ON jobs
@@ -137,6 +163,12 @@ CREATE POLICY "scm_production_lines_all"
   USING (TRUE)
   WITH CHECK (TRUE);
 
+CREATE POLICY "scm_sales_pipeline_all"
+  ON sales_pipeline_deals
+  FOR ALL
+  USING (TRUE)
+  WITH CHECK (TRUE);
+
 
 -- ─── Enable Realtime ──────────────────────────────────────────────────────────
 -- After running this schema, go to:
@@ -145,3 +177,4 @@ CREATE POLICY "scm_production_lines_all"
 --
 -- Or run this SQL (works in most Supabase projects):
 ALTER PUBLICATION supabase_realtime ADD TABLE jobs;
+ALTER PUBLICATION supabase_realtime ADD TABLE sales_pipeline_deals;

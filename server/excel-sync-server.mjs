@@ -108,11 +108,22 @@ function isoDate(year, month, day) {
 
 function parseScheduleDate(value) {
   if (!value) return "";
+  if (typeof value === "object" && value !== null) {
+    // Handle cell-like objects from xlsx (e.g. { v, w, t }) before stringifying.
+    if (value instanceof Date && !Number.isNaN(value.valueOf())) return value.toISOString().slice(0, 10);
+    if (typeof value.v === "number") return excelSerialToDate(value.v);
+    if (typeof value.v === "string") return parseScheduleDate(value.v);
+    if (typeof value.w === "string") return parseScheduleDate(value.w);
+    return "";
+  }
   if (value instanceof Date && !Number.isNaN(value.valueOf())) return value.toISOString().slice(0, 10);
   if (typeof value === "number") return excelSerialToDate(value);
 
   const text = String(value).replace(/\u00a0/g, " ").trim();
   if (!text) return "";
+
+  const isoDateMatch = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (isoDateMatch) return isoDate(Number(isoDateMatch[1]), Number(isoDateMatch[2]), Number(isoDateMatch[3]));
 
   const slashDate = text.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
   if (slashDate) return isoDate(Number(slashDate[3]), Number(slashDate[1]), Number(slashDate[2]));
@@ -142,11 +153,27 @@ function cleanText(value) {
 }
 
 function cellValue(row, column) {
-  return row[column] ?? "";
+  return (Array.isArray(row) ? row[column] : "") ?? "";
+}
+
+function inferDistrictFromName(name) {
+  const text = cleanText(name);
+  if (!text) return "";
+
+  // Common master format: "District - Project ...", sometimes with en dash.
+  const dashSplit = text.split(/\s+[—–-]\s+/);
+  if (dashSplit.length > 1) return cleanText(dashSplit[0]);
+
+  // Fallback: stop after a district-like suffix if present.
+  const keywordMatch = text.match(/^(.+?\b(?:USD|ESD|Unified|Schools?|School District|College|Charter)\b)/i);
+  if (keywordMatch) return cleanText(keywordMatch[1]);
+
+  return "";
 }
 
 function inferStatus(row) {
-  const joined = row.map((value) => cleanText(value).toLowerCase()).join(" ");
+  const values = Array.isArray(row) ? row : [];
+  const joined = values.map((value) => cleanText(value).toLowerCase()).join(" ");
   if (joined.includes("need") || joined.includes("waiting") || joined.includes("shortage") || joined.includes("no eta")) {
     return "hold";
   }
@@ -169,6 +196,8 @@ function masterRowToJob(row, rowNumber, line) {
   const start = topset || shipping || set || "2026-01-01";
   const end = shipping || set || addDays(start, 14);
   const name = cleanText(cellValue(row, MASTER_COLUMNS.name)) || "Unnamed job";
+  const derivedDistrict = inferDistrictFromName(name);
+  const rawClient = cleanText(cellValue(row, MASTER_COLUMNS.client));
   const openItems = cleanText(cellValue(row, MASTER_COLUMNS.openItems));
   const pmUpdate = cleanText(cellValue(row, MASTER_COLUMNS.pmUpdate));
 
@@ -179,7 +208,7 @@ function masterRowToJob(row, rowNumber, line) {
     sourceRow: rowNumber,
     jobNumber: cleanText(cellValue(row, MASTER_COLUMNS.jobNumber)),
     name,
-    client: cleanText(cellValue(row, MASTER_COLUMNS.client)) || "Project team",
+    client: derivedDistrict || rawClient || "Project team",
     line,
     start,
     end,
@@ -268,7 +297,7 @@ function isMasterWorkbook(workbook) {
 
 function readMasterJobs(workbook) {
   const sheet = workbook.Sheets[SHEET_NAME];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
   const markers = [];
 
   rows.forEach((row, index) => {
@@ -281,7 +310,7 @@ function readMasterJobs(workbook) {
   markers.forEach((marker, index) => {
     const nextMarkerIndex = markers[index + 1]?.rowIndex ?? rows.length;
     for (let rowIndex = marker.rowIndex + 1; rowIndex < nextMarkerIndex; rowIndex += 1) {
-      const row = rows[rowIndex];
+      const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
       if (!cleanText(row[MASTER_COLUMNS.jobNumber]) && !cleanText(row[MASTER_COLUMNS.name])) continue;
       jobs.push(masterRowToJob(row, rowIndex + 1, marker.line));
     }
@@ -315,6 +344,14 @@ function splitNotes(notes) {
   return { openItems: openItems || "", pmUpdate: pmUpdate || "" };
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (String(value).trim() !== "") return value;
+  }
+  return "";
+}
+
 function writeMasterJobs(workbook, jobs) {
   const sheet = workbook.Sheets[SHEET_NAME];
   let updated = 0;
@@ -341,8 +378,8 @@ function writeMasterJobs(workbook, jobs) {
       setCell(sheet, rowNumber, MASTER_COLUMNS.topset, job.start);
       setCell(sheet, rowNumber, MASTER_COLUMNS.shipping, job.end);
       setCell(sheet, rowNumber, MASTER_COLUMNS.set, job.due);
-      setCell(sheet, rowNumber, MASTER_COLUMNS.openItems, master.openItems ?? openItems);
-      setCell(sheet, rowNumber, MASTER_COLUMNS.pmUpdate, master.pmUpdate ?? pmUpdate);
+      setCell(sheet, rowNumber, MASTER_COLUMNS.openItems, firstNonEmpty(master.openItems, openItems));
+      setCell(sheet, rowNumber, MASTER_COLUMNS.pmUpdate, firstNonEmpty(master.pmUpdate, pmUpdate));
       updated += 1;
     } else {
       additions.push(jobToSimpleRow(job));

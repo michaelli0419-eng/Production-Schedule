@@ -281,14 +281,33 @@ function getMilestoneLayout(job, scheduleView) {
 }
 
 function normalizeJob(job, index) {
+  const fallbackStart =
+    job.start ||
+    job.start_date ||
+    job.end ||
+    job.end_date ||
+    job.due ||
+    job.due_date ||
+    "2026-01-05";
+  const fallbackEnd =
+    job.end ||
+    job.end_date ||
+    job.due ||
+    job.due_date ||
+    fallbackStart;
+  const fallbackDue =
+    job.due ||
+    job.due_date ||
+    fallbackEnd;
+
   return {
     id: job.id || String(Date.now() + index),
     name: job.name || job.job_name || "New School Project",
     client: job.client || "District",
     line: LINE_IDS.includes(job.line) || job.line === QUEUE ? job.line : "L1",
-    start: job.start || job.start_date || "2026-01-05",
-    end: job.end || job.end_date || "2026-01-19",
-    due: job.due || job.due_date || job.end || job.end_date || "2026-01-19",
+    start: fallbackStart,
+    end: fallbackEnd,
+    due: fallbackDue,
     offLine: job.offLine || job.topsetComplete || job.topset_complete || job.off_line || defaultTopsetCompleteDate(
       job.start || job.start_date || "2026-01-05",
     ),
@@ -1010,6 +1029,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const gridRef = useRef(null);
   const fileRef = useRef(null);
   const dragRef = useRef(null);
+  const jobsRef = useRef(jobs);
 
   const today = formatDate(new Date());
   const timelineRange = useMemo(() => {
@@ -1061,6 +1081,10 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const queuedJobs = visibleJobs.filter((job) => job.line === QUEUE);
   const selectedJob = jobs.find((job) => job.id === selectedId) || null;
   const selectedDateHelp = dateFieldHelp(selectedJob);
+
+  useEffect(() => {
+    jobsRef.current = jobs;
+  }, [jobs]);
 
   useEffect(() => {
     dragRef.current = dragging;
@@ -1261,10 +1285,11 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   async function saveToExcel() {
     setExcelSync((c) => ({ ...c, busy: true, message: "Saving Excel..." }));
     try {
+      const latestJobs = jobsRef.current;
       const res = await fetch(`${EXCEL_API_URL}/api/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobs }),
+        body: JSON.stringify({ jobs: latestJobs }),
       });
       const payload = await readExcelApiJson(res);
       if (!res.ok) throw new Error(payload.error || "Excel save failed");
@@ -1493,12 +1518,23 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           current.map((job) => {
             if (job.id !== drag.jobId) return job;
             if (drag.type === "resize-left") {
-              const latestAllowedStart = addDays(drag.origOffLine < drag.origEnd ? drag.origOffLine : drag.origEnd, -1);
+              const rightBoundary = scheduleView === "production"
+                ? drag.origOffLine
+                : (drag.origOffLine < drag.origEnd ? drag.origOffLine : drag.origEnd);
+              const latestAllowedStart = addDays(rightBoundary, -1);
               const start = addDays(drag.origStart, delta);
               const nextStart = start > latestAllowedStart ? latestAllowedStart : start;
+              if (scheduleView === "production") {
+                return { ...job, start: nextStart };
+              }
               return { ...job, start: nextStart, offLine: defaultTopsetCompleteDate(nextStart) };
             }
             if (drag.type === "resize-right") {
+              if (scheduleView === "production") {
+                const nextOffLine = addDays(drag.origOffLine, delta);
+                const minOffLine = addDays(job.start, 1);
+                return { ...job, offLine: nextOffLine < minOffLine ? minOffLine : nextOffLine };
+              }
               const nextEnd = addDays(drag.origEnd, delta);
               const nextDue = addDays(drag.origDue, delta);
               const minEnd = addDays(job.start, 1);
@@ -1571,7 +1607,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [dayPx, drawing, getX, xToDate]);
+  }, [dayPx, drawing, getX, scheduleView, xToDate]);
 
   // ── Loading state ───────────────────────────────────────────────────────
   if (dbLoading) {
@@ -1791,7 +1827,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
               ))}
 
               {/* Overlap highlights */}
-              {overlaps.map((o, i) => (
+              {scheduleView !== "production" && overlaps.map((o, i) => (
                 <div
                   className="ps-overlap"
                   key={`${o.line}-${o.start}-${i}`}
@@ -1884,8 +1920,8 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                         </i>
                       </>
                     )}
-                    <span>{job.name}</span>
-                    <small>{layout.view.endLabel} {displayDate(getScheduleEnd(job, scheduleView))} · {job.modules} mod</small>
+                    <span>{`${job.jobNumber || "No job #"} · ${job.client || "No client"}`}</span>
+                    <small>{job.name}</small>
                     <b style={{ width: `${job.progress}%` }} />
                     {(hasOverlap || late) && <em>{hasOverlap ? "!" : "Late"}</em>}
                   </div>

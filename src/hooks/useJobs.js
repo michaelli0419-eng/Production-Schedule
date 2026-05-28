@@ -173,16 +173,23 @@ export function useJobs(sampleJobs, normalizeJob) {
             const changed =
               !old ||
               old.start !== job.start ||
+              old.offLine !== job.offLine ||
               old.end   !== job.end   ||
+              old.due   !== job.due   ||
               old.line  !== job.line  ||
+              old.client !== job.client ||
               old.status !== job.status ||
               old.progress !== job.progress ||
               old.name !== job.name ||
+              old.jobNumber !== job.jobNumber ||
               old.color !== job.color ||
               old.notes !== job.notes ||
               old.priority !== job.priority ||
               old.modules !== job.modules ||
               old.crew !== job.crew ||
+              old.sourceType !== job.sourceType ||
+              old.sourceSheet !== job.sourceSheet ||
+              old.sourceRow !== job.sourceRow ||
               JSON.stringify(old.readiness) !== JSON.stringify(job.readiness) ||
               JSON.stringify(old.master)    !== JSON.stringify(job.master);
 

@@ -485,12 +485,17 @@ function integrationStatus(job) {
   return { label: "Missing IDs", tone: "red" };
 }
 
+function isDateInRange(day, start, end) {
+  return day >= start && day <= end;
+}
+
 function ModuleWorkspace({
   module,
   jobs,
   pipelineDeals,
   kpis,
   risks,
+  overlaps,
   lineUtilization,
   excelSync,
   onOpenProduction,
@@ -543,60 +548,149 @@ function ModuleWorkspace({
     .filter(({ integration, readiness }) => integration.tone !== "green" || readiness < 100)
     .slice(0, 8);
 
+  const today = formatDate(new Date());
+  const lineOperations = LINES.map((line) => {
+    const lineJobs = jobs
+      .filter((job) => job.line === line.id)
+      .sort((a, b) => a.start.localeCompare(b.start));
+    const currentJob = lineJobs.find((job) => isDateInRange(today, job.start, job.end)) || null;
+    const activeCount = lineJobs.filter((job) => isDateInRange(today, job.start, job.end)).length;
+    const upcoming = lineJobs.filter((job) => job.start > today);
+    const completed = lineJobs.filter((job) => job.end < today);
+    const latestEnd = lineJobs.reduce((max, job) => (job.end > max ? job.end : max), "");
+    const nextStart = upcoming.reduce((min, job) => (!min || job.start < min ? job.start : min), "");
+    const hasGap = Boolean(latestEnd && nextStart && nextStart > addDays(latestEnd, 2));
+    const outlookEnd = addDays(today, 90);
+    const outlookJobs = lineJobs.filter((job) => job.start <= outlookEnd && job.end >= today);
+    const futurePairs = lineJobs
+      .filter((job) => job.end >= today)
+      .sort((a, b) => a.start.localeCompare(b.start));
+    let futureGapDays = 0;
+    for (let i = 0; i < futurePairs.length - 1; i += 1) {
+      const gap = dateDiffDays(futurePairs[i].end, futurePairs[i + 1].start) - 1;
+      if (gap > futureGapDays) futureGapDays = gap;
+    }
+    const overlapCount = overlaps.filter((item) => item.line === line.id).length;
+    const statusTone = overlapCount ? "red" : (currentJob ? "green" : (hasGap ? "amber" : "blue"));
+    const statusLabel = overlapCount
+      ? "Overlap risk"
+      : currentJob
+        ? "Running"
+        : hasGap
+          ? "Gap risk"
+          : "Planned";
+
+    return {
+      line,
+      lineJobs,
+      currentJob,
+      activeCount,
+      upcoming,
+      completed,
+      outlookJobs,
+      futureGapDays,
+      hasGap,
+      overlapCount,
+      statusTone,
+      statusLabel,
+    };
+  });
+  const totalOverlaps = overlaps.length;
+  const totalGapLines = lineOperations.filter((line) => line.hasGap).length;
+  const idleLines = lineOperations.filter((line) => !line.currentJob).length;
+  const upcoming7Days = jobs.filter((job) => job.start > today && job.start <= addDays(today, 7)).length;
+  const lateJobs = jobs.filter((job) => LINE_IDS.includes(job.line) && job.end > job.due).length;
+  const completedThisWeek = jobs.filter((job) => job.end >= addDays(today, -7) && job.end <= today).length;
+  const avgLineUtil = Math.round(lineUtilization.reduce((sum, line) => sum + line.utilization, 0) / Math.max(1, lineUtilization.length));
+
   if (module.id === "dashboard") {
     return (
       <section className="ps-module-page" aria-label={module.title}>
         <ModuleHead module={module} eyebrow="SCM operating bridge" />
         <div className="ps-dashboard-grid">
-          <section className="ps-bridge-panel">
-            <div className="ps-section-head">
-              <h2>NetSuite to Procore Bridge</h2>
-              <span>{bridgeGaps.length} records need clean handoff data</span>
-            </div>
-            <div className="ps-bridge-flow">
-              {["NetSuite", "SCM Hub", "Procore"].map((system, index) => (
-                <div key={system} className={index === 1 ? "is-core" : ""}>
-                  <strong>{system}</strong>
-                  <span>
-                    {index === 0 ? "contract, customer, revenue" : index === 1 ? "schedule, risk, readiness" : "field, submittals, closeout"}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="ps-alert-list">
-              {bridgeGaps.map(({ job, integration, readiness }) => (
-                <button key={job.id} type="button" onClick={() => onOpenProduction(job.id)}>
-                  <span className={`ps-status-dot is-${integration.tone}`} />
-                  <strong>{job.name}</strong>
-                  <small>{integration.label} - {readiness}% ready - ship {displayDate(job.end)}</small>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="ps-ops-strip">
-            <MetricBlock label="Scheduled Jobs" value={kpis.jobs} detail={`${kpis.modules} modules`} />
-            <MetricBlock label="Active Production" value={kpis.production} detail="on factory lines" />
-            <MetricBlock label="Plant Utilization" value={kpis.utilization} detail="current date span" />
-            <MetricBlock label="Readiness" value={kpis.readiness} detail="average gate score" />
-          </section>
-
           <section className="ps-table-panel">
             <div className="ps-section-head">
-              <h2>Line Capacity</h2>
-              <span>Factory view by production line</span>
+              <h2>Line Operations Status</h2>
+              <span>Current load, 3-month outlook, and future gap warnings</span>
             </div>
-            <div className="ps-line-stack">
-              {lineUtilization.map((line) => {
-                const detail = LINES.find((item) => item.id === line.line);
+            <div className="ps-line-matrix">
+              {lineOperations.map((row) => {
+                const util = lineUtilization.find((item) => item.line === row.line.id);
                 return (
-                  <div key={line.line}>
-                    <strong>{detail?.name || line.line}</strong>
-                    <span>{line.jobs} jobs - {line.modules} modules</span>
-                    <div className="ps-meter"><i style={{ width: `${line.utilization}%` }} /></div>
+                  <div key={row.line.id} className="ps-line-row">
+                    <strong>{row.line.name}</strong>
+                    <span>{row.lineJobs.length} total jobs</span>
+                    <span>{row.currentJob ? row.currentJob.name : "No active job"}</span>
+                    <span>{row.upcoming[0] ? `${row.upcoming[0].name} (${displayDate(row.upcoming[0].start)})` : "No upcoming job"}</span>
+                    <span>{row.activeCount} active / {row.upcoming.length} upcoming / {row.outlookJobs.length} in 3mo</span>
+                    <span>{util?.utilization || 0}%</span>
+                    <span className={`ps-queue-badge is-${row.statusTone}`}>
+                      {row.overlapCount ? `${row.overlapCount} overlap` : row.hasGap ? "Gap risk" : "Stable"}
+                    </span>
+                    <span className={`ps-queue-badge is-${row.futureGapDays >= 5 ? "amber" : "green"}`}>
+                      {row.futureGapDays >= 5 ? `${row.futureGapDays}d future gap` : "No major future gap"}
+                    </span>
+                    {(row.currentJob || row.upcoming[0]) ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenProduction((row.currentJob || row.upcoming[0]).id)}
+                      >
+                        Open
+                      </button>
+                    ) : <span>-</span>}
                   </div>
                 );
               })}
+            </div>
+          </section>
+
+          <section className="ps-dashboard-snapshot">
+            <article className="ps-mini-card">
+              <h3>Operations Snapshot</h3>
+              <div className="ps-mini-stats">
+                <span>Lines running <strong>{LINES.length - idleLines}/{LINES.length}</strong></span>
+                <span>Avg utilization <strong>{avgLineUtil}%</strong></span>
+                <span>Upcoming 7 days <strong>{upcoming7Days}</strong></span>
+              </div>
+            </article>
+            <article className="ps-mini-card">
+              <h3>Line Alerts</h3>
+              <div className="ps-mini-stats">
+                <span>Overlaps <strong>{totalOverlaps}</strong></span>
+                <span>Gap risk lines <strong>{totalGapLines}</strong></span>
+                <span>Late jobs <strong>{lateJobs}</strong></span>
+              </div>
+            </article>
+            <article className="ps-mini-card">
+              <h3>Today Throughput</h3>
+              <div className="ps-mini-stats">
+                <span>Active now <strong>{lineOperations.reduce((sum, row) => sum + row.activeCount, 0)}</strong></span>
+                <span>Completed (7d) <strong>{completedThisWeek}</strong></span>
+                <span>Idle lines <strong>{idleLines}</strong></span>
+              </div>
+            </article>
+          </section>
+
+          <section className="ps-bridge-panel">
+            <div className="ps-section-head">
+              <h2>Schedule Gaps and Handoffs</h2>
+              <span>{bridgeGaps.length} records need clean handoff data</span>
+            </div>
+            <div className="ps-alert-list">
+              {lineOperations
+                .filter((row) => row.hasGap || row.overlapCount || !row.currentJob)
+                .map((row) => (
+                  <button key={row.line.id} type="button" onClick={() => onOpenProduction((row.currentJob || row.upcoming[0])?.id || jobs[0]?.id)}>
+                    <span className={`ps-status-dot is-${row.overlapCount ? "red" : row.hasGap ? "amber" : "blue"}`} />
+                    <strong>{row.line.name}</strong>
+                    <small>
+                      {row.overlapCount ? `${row.overlapCount} overlap windows` : row.hasGap ? "Gap detected between planned jobs" : "No active job on line"}
+                    </small>
+                  </button>
+                ))}
+              {!lineOperations.some((row) => row.hasGap || row.overlapCount || !row.currentJob) && (
+                <p className="ps-empty">All lines have active or cleanly planned work.</p>
+              )}
             </div>
           </section>
 
@@ -1631,10 +1725,12 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       jobId,
       type: "move",
       startX: getX(e.clientX),
+      startY: e.clientY,
       origStart: job.start,
       origOffLine: job.offLine || defaultTopsetCompleteDate(job.start),
       origEnd: job.end,
       origDue: job.due,
+      origLine: job.line,
     });
   }
 
@@ -1690,8 +1786,10 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
             }
             const duration = dateDiffDays(drag.origStart, drag.origEnd) - 1;
             const start = addDays(drag.origStart, delta);
+            const targetLine = getLineFromY(e.clientY) || drag.origLine;
             return {
               ...job,
+              line: targetLine,
               start,
               offLine: addDays(drag.origOffLine, delta),
               end: addDays(start, duration),
@@ -2437,6 +2535,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           pipelineDeals={pipelineDeals}
           kpis={kpis}
           risks={risks}
+          overlaps={overlaps}
           lineUtilization={lineUtilization}
           excelSync={excelSync}
           canViewPrices={canViewPrices}

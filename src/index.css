@@ -725,6 +725,43 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
+.ps-dashboard-snapshot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+.ps-mini-card {
+  background: #fff;
+  border: 1px solid #dbe3ec;
+  border-radius: 7px;
+  padding: 10px 11px;
+  display: grid;
+  gap: 7px;
+}
+.ps-mini-card h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ps-mini-stats {
+  display: grid;
+  gap: 4px;
+}
+.ps-mini-stats span {
+  color: #64748b;
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ps-mini-stats strong {
+  color: #0f172a;
+  font-size: 12px;
+}
 .ps-metric-block {
   display: grid;
   gap: 2px;
@@ -747,6 +784,46 @@ body {
 .ps-line-stack div { display: grid; gap: 4px; }
 .ps-line-stack strong { color: #0f172a; font-size: 12px; }
 .ps-line-stack span { color: #64748b; font-size: 11px; }
+.ps-line-matrix {
+  display: grid;
+  gap: 6px;
+}
+.ps-dashboard-grid .ps-table-panel:first-of-type {
+  grid-column: 1 / -1;
+}
+.ps-line-row {
+  display: grid;
+  grid-template-columns: 76px 94px minmax(170px, 1.2fr) minmax(170px, 1.2fr) 190px 70px 105px 130px 60px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+}
+.ps-line-row strong {
+  font-size: 12px;
+  color: #0f172a;
+}
+.ps-line-row span {
+  font-size: 11px;
+  color: #475569;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ps-line-row button {
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-radius: 5px;
+  font-size: 11px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.ps-line-row button:hover {
+  background: #dbeafe;
+}
 
 .ps-stage-board {
   display: grid;
@@ -1772,6 +1849,15 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .ps-dashboard-snapshot {
+    grid-template-columns: 1fr;
+  }
+
+  .ps-line-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
   .ps-report-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1809,6 +1895,7 @@ body {
 
   .ps-bridge-flow,
   .ps-ops-strip,
+  .ps-dashboard-snapshot,
   .ps-report-grid {
     grid-template-columns: 1fr;
   }

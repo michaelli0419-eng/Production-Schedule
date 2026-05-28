@@ -211,6 +211,26 @@ CREATE POLICY "scm_user_profiles_service"
 --   Supabase Dashboard → Database → Replication
 --   Under "Source" toggle ON the "jobs" table
 --
--- Or run this SQL (works in most Supabase projects):
-ALTER PUBLICATION supabase_realtime ADD TABLE jobs;
-ALTER PUBLICATION supabase_realtime ADD TABLE sales_pipeline_deals;
+-- Or run this SQL (safe to re-run):
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'jobs'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.jobs;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'sales_pipeline_deals'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.sales_pipeline_deals;
+  END IF;
+END $$;

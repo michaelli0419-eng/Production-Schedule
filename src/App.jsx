@@ -3,6 +3,13 @@ import ProductionScheduler from "./components/ProductionScheduler.jsx";
 import { isSupabaseEnabled, supabase } from "./lib/supabase.js";
 
 const SESSION_KEY = "scm-production-session";
+const EMERGENCY_ADMIN = {
+  email: "michael@webbinvestments.com",
+  accessCode: "Alpha2023!",
+  name: "Michael Li",
+  role: "Super Admin",
+  canViewPrices: true,
+};
 const USERS = [
   {
     email: "michael@silvercreek.local",
@@ -43,6 +50,21 @@ function LoginPage({ onLogin }) {
   async function submitLogin(event) {
     event.preventDefault();
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCode = accessCode.trim();
+
+    if (
+      normalizedEmail === EMERGENCY_ADMIN.email.toLowerCase()
+      && normalizedCode === EMERGENCY_ADMIN.accessCode
+    ) {
+      setError("");
+      onLogin({
+        email: EMERGENCY_ADMIN.email,
+        name: EMERGENCY_ADMIN.name,
+        role: EMERGENCY_ADMIN.role,
+        canViewPrices: EMERGENCY_ADMIN.canViewPrices,
+      });
+      return;
+    }
 
     if (isSupabaseEnabled && supabase) {
       setBusy(true);
@@ -50,7 +72,7 @@ function LoginPage({ onLogin }) {
       try {
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email: normalizedEmail,
-          password: accessCode.trim(),
+          password: normalizedCode,
         });
         if (signInError) {
           setError(signInError.message || "Login failed.");
@@ -86,7 +108,7 @@ function LoginPage({ onLogin }) {
     }
 
     const user = USERS.find(
-      (item) => item.email === normalizedEmail && item.accessCode === accessCode.trim(),
+      (item) => item.email === normalizedEmail && item.accessCode === normalizedCode,
     );
     if (!user) {
       setError("Email or access code does not match an approved user.");

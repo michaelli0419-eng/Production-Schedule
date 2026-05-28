@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJobs } from "../hooks/useJobs.js";
 import { usePipelineDeals } from "../hooks/usePipelineDeals.js";
+import { useUserProfiles } from "../hooks/useUserProfiles.js";
+import { isSupabaseEnabled } from "../lib/supabase.js";
 
 const FALLBACK_YEAR = 2026;
 const LINES = [
@@ -474,6 +476,7 @@ function ModuleWorkspace({
   excelSync,
   onOpenProduction,
   canViewPrices,
+  userAdmin,
 }) {
   const [pipelineSearch, setPipelineSearch] = useState("");
   const [pipelineClientFilter, setPipelineClientFilter] = useState("all");
@@ -785,8 +788,96 @@ function ModuleWorkspace({
           title="Status Workflow"
           rows={Object.entries(STATUS_CONFIG).map(([key, value]) => [value.label, key, "Enabled"])}
         />
+        {userAdmin.canManage && (
+          <section className="ps-table-panel">
+            <div className="ps-section-head">
+              <h2>User Profiles</h2>
+              <span>Manage role and pricing access</span>
+            </div>
+            {!isSupabaseEnabled ? (
+              <p className="ps-empty">Supabase is not configured. Add env vars to enable profile management.</p>
+            ) : (
+              <UserProfilesAdmin userAdmin={userAdmin} />
+            )}
+          </section>
+        )}
       </div>
     </section>
+  );
+}
+
+function UserProfilesAdmin({ userAdmin }) {
+  const [draft, setDraft] = useState({
+    id: "",
+    email: "",
+    full_name: "",
+    role: "User",
+    can_view_prices: false,
+  });
+  const [status, setStatus] = useState("");
+
+  async function submitProfile(event) {
+    event.preventDefault();
+    const result = await userAdmin.saveProfile(draft);
+    if (!result.ok) {
+      setStatus(result.error || "Save failed.");
+      return;
+    }
+    setStatus("Profile saved.");
+    setDraft({ id: "", email: "", full_name: "", role: "User", can_view_prices: false });
+  }
+
+  function editProfile(profile) {
+    setDraft({
+      id: profile.id || "",
+      email: profile.email || "",
+      full_name: profile.full_name || "",
+      role: profile.role || "User",
+      can_view_prices: Boolean(profile.can_view_prices),
+    });
+    setStatus(`Editing ${profile.email || profile.id}`);
+  }
+
+  async function removeProfile(id) {
+    const result = await userAdmin.deleteProfile(id);
+    setStatus(result.ok ? "Profile deleted." : (result.error || "Delete failed."));
+  }
+
+  return (
+    <div className="ps-user-admin">
+      <form className="ps-user-form" onSubmit={submitProfile}>
+        <input className="ps-input" placeholder="Auth User ID (UUID)" value={draft.id} onChange={(e) => setDraft((v) => ({ ...v, id: e.target.value }))} />
+        <input className="ps-input" placeholder="Email" value={draft.email} onChange={(e) => setDraft((v) => ({ ...v, email: e.target.value }))} />
+        <input className="ps-input" placeholder="Full name" value={draft.full_name} onChange={(e) => setDraft((v) => ({ ...v, full_name: e.target.value }))} />
+        <input className="ps-input" placeholder="Role" value={draft.role} onChange={(e) => setDraft((v) => ({ ...v, role: e.target.value }))} />
+        <label className="ps-user-checkbox">
+          <input type="checkbox" checked={draft.can_view_prices} onChange={(e) => setDraft((v) => ({ ...v, can_view_prices: e.target.checked }))} />
+          Pricing access
+        </label>
+        <Button>{draft.id ? "Save Profile" : "Add Profile"}</Button>
+      </form>
+      {status && <p className="ps-empty">{status}</p>}
+      {userAdmin.error && <p className="ps-login-error">{userAdmin.error}</p>}
+      {userAdmin.loading ? <p className="ps-empty">Loading profiles...</p> : (
+        <div className="ps-project-table">
+          <div className="ps-project-row is-header">
+            <span>Email</span><span>User ID</span><span>Role</span><span>Pricing</span><span>Actions</span>
+          </div>
+          {userAdmin.profiles.map((profile) => (
+            <div key={profile.id} className="ps-project-row">
+              <span><strong>{profile.email || "-"}</strong><small>{profile.full_name || "No name"}</small></span>
+              <span><small>{profile.id}</small></span>
+              <span><small>{profile.role || "User"}</small></span>
+              <span><small>{profile.can_view_prices ? "Enabled" : "Hidden"}</small></span>
+              <span>
+                <button type="button" className="ps-mini-btn" onClick={() => editProfile(profile)}>Edit</button>
+                <button type="button" className="ps-mini-btn ps-mini-btn-danger" onClick={() => removeProfile(profile.id)}>Delete</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -894,6 +985,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     deals: pipelineDeals,
     setDealsBulk: setPipelineDealsBulk,
   } = usePipelineDeals(SAMPLE_PIPELINE_DEALS);
+  const userProfiles = useUserProfiles();
 
   const [selectedId, setSelectedId] = useState(null);
   const [dragging, setDragging] = useState(null);
@@ -913,6 +1005,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     message: "Excel sync not connected",
   });
   const canViewPrices = Boolean(permissions?.canViewPrices);
+  const canManageUsers = String(currentUser?.email || "").toLowerCase() === "michael@webbinvestments.com";
   const gridRef = useRef(null);
   const fileRef = useRef(null);
   const dragRef = useRef(null);
@@ -2080,6 +2173,14 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           lineUtilization={lineUtilization}
           excelSync={excelSync}
           canViewPrices={canViewPrices}
+          userAdmin={{
+            canManage: canManageUsers,
+            profiles: userProfiles.profiles,
+            loading: userProfiles.loading,
+            error: userProfiles.error,
+            saveProfile: userProfiles.saveProfile,
+            deleteProfile: userProfiles.deleteProfile,
+          }}
           onOpenProduction={(jobId) => {
             setSelectedId(jobId);
             setStatusFilter("all");

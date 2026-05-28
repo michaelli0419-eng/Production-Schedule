@@ -76,8 +76,17 @@ export function useJobs(sampleJobs, normalizeJob) {
       return;
     }
 
-    // Supabase path
-    fetchAllJobs()
+    // Supabase path: avoid indefinite spinner if network/db call hangs
+    const fetchWithTimeout = Promise.race([
+      fetchAllJobs(),
+      new Promise((_, reject) => {
+        window.setTimeout(() => {
+          reject(new Error("Database request timed out. Falling back to local schedule."));
+        }, 12000);
+      }),
+    ]);
+
+    fetchWithTimeout
       .then((fetched) => {
         setJobsState(fetched);
         setLoading(false);

@@ -100,7 +100,7 @@ function LoginPage({ onLogin }) {
           setError("Login failed.");
           return;
         }
-        const { data: profile, error: profileError } = await withTimeout(
+        const { data: profile } = await withTimeout(
           supabase
             .from("user_profiles")
             .select("full_name, role, can_view_prices")
@@ -109,11 +109,6 @@ function LoginPage({ onLogin }) {
           12000,
           "Profile lookup timed out. Check Supabase table/policies and try again.",
         );
-
-        if (profileError) {
-          setError(profileError.message || "Could not load user profile.");
-          return;
-        }
 
         onLogin({
           id: authUser.id,
@@ -200,18 +195,32 @@ export default function App() {
       supabase.auth.getSession().then(async ({ data }) => {
         const sessionUser = data.session?.user;
         if (!sessionUser) return;
-        const { data: profile } = await supabase
-          .from("user_profiles")
-          .select("full_name, role, can_view_prices")
-          .eq("id", sessionUser.id)
-          .maybeSingle();
-        setCurrentUser({
-          id: sessionUser.id,
-          email: sessionUser.email || "",
-          name: profile?.full_name || sessionUser.email || "",
-          role: profile?.role || "User",
-          canViewPrices: Boolean(profile?.can_view_prices),
-        });
+        try {
+          const { data: profile } = await withTimeout(
+            supabase
+              .from("user_profiles")
+              .select("full_name, role, can_view_prices")
+              .eq("id", sessionUser.id)
+              .maybeSingle(),
+            8000,
+            "Profile lookup timed out.",
+          );
+          setCurrentUser({
+            id: sessionUser.id,
+            email: sessionUser.email || "",
+            name: profile?.full_name || sessionUser.email || "",
+            role: profile?.role || "User",
+            canViewPrices: Boolean(profile?.can_view_prices),
+          });
+        } catch {
+          setCurrentUser({
+            id: sessionUser.id,
+            email: sessionUser.email || "",
+            name: sessionUser.email || "",
+            role: "User",
+            canViewPrices: false,
+          });
+        }
       });
       const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
         const sessionUser = session?.user;
@@ -219,18 +228,32 @@ export default function App() {
           setCurrentUser(null);
           return;
         }
-        const { data: profile } = await supabase
-          .from("user_profiles")
-          .select("full_name, role, can_view_prices")
-          .eq("id", sessionUser.id)
-          .maybeSingle();
-        setCurrentUser({
-          id: sessionUser.id,
-          email: sessionUser.email || "",
-          name: profile?.full_name || sessionUser.email || "",
-          role: profile?.role || "User",
-          canViewPrices: Boolean(profile?.can_view_prices),
-        });
+        try {
+          const { data: profile } = await withTimeout(
+            supabase
+              .from("user_profiles")
+              .select("full_name, role, can_view_prices")
+              .eq("id", sessionUser.id)
+              .maybeSingle(),
+            8000,
+            "Profile lookup timed out.",
+          );
+          setCurrentUser({
+            id: sessionUser.id,
+            email: sessionUser.email || "",
+            name: profile?.full_name || sessionUser.email || "",
+            role: profile?.role || "User",
+            canViewPrices: Boolean(profile?.can_view_prices),
+          });
+        } catch {
+          setCurrentUser({
+            id: sessionUser.id,
+            email: sessionUser.email || "",
+            name: sessionUser.email || "",
+            role: "User",
+            canViewPrices: false,
+          });
+        }
       });
       return () => authListener.subscription.unsubscribe();
     }

@@ -19,6 +19,115 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.ps-login-shell {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.9)),
+    url("/src/assets/hero.png") center / cover;
+}
+
+.ps-login-panel {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.32);
+}
+
+.ps-login-brand {
+  display: grid;
+  gap: 6px;
+}
+
+.ps-login-brand h1 {
+  color: #0f172a;
+  font-size: 25px;
+  line-height: 1.15;
+}
+
+.ps-login-brand span {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ps-login-form {
+  display: grid;
+  gap: 12px;
+}
+
+.ps-login-form label {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ps-login-form input {
+  height: 38px;
+  padding: 0 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 13px;
+}
+
+.ps-login-form input:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.22);
+  border-color: #2563eb;
+}
+
+.ps-login-form button {
+  height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ps-login-form button:hover {
+  background: #1d4ed8;
+}
+
+.ps-login-error {
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ps-login-note {
+  display: grid;
+  gap: 3px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.ps-login-note strong {
+  color: #334155;
+  font-size: 11px;
+}
+
 /* ── Shell ────────────────────────────────────────────────────────────────── */
 .ps-shell {
   display: flex;
@@ -98,6 +207,31 @@ body {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.ps-user-badge {
+  display: grid;
+  gap: 1px;
+  min-width: 126px;
+  padding: 4px 9px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.07);
+}
+
+.ps-user-badge strong {
+  overflow: hidden;
+  color: #f8fafc;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-user-badge span {
+  color: #94a3b8;
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .ps-button {
@@ -649,6 +783,52 @@ body {
 .ps-deal-card em { font-size: 10px; font-style: normal; }
 .ps-deal-card b { color: #059669; }
 .ps-deal-card em { color: #94a3b8; }
+
+.ps-pipeline-filters {
+  display: grid;
+  grid-template-columns: 1.5fr repeat(4, minmax(150px, 1fr));
+  gap: 8px;
+}
+.ps-input {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 12px;
+}
+.ps-pipeline-table-wrap {
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.ps-pipeline-table {
+  width: 100%;
+  min-width: 1080px;
+  border-collapse: collapse;
+  background: #fff;
+}
+.ps-pipeline-table th,
+.ps-pipeline-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  font-size: 12px;
+}
+.ps-pipeline-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.ps-pipeline-table tbody tr:hover {
+  background: #f8fafc;
+}
 
 .ps-project-table {
   display: grid;
@@ -1513,6 +1693,10 @@ body {
   .ps-project-row {
     min-width: 860px;
   }
+
+  .ps-pipeline-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -1542,6 +1726,10 @@ body {
 
   .ps-stage-column {
     min-height: auto;
+  }
+
+  .ps-pipeline-filters {
+    grid-template-columns: 1fr;
   }
 
   .ps-settings-list div {

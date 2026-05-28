@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJobs } from "../hooks/useJobs.js";
+import { usePipelineDeals } from "../hooks/usePipelineDeals.js";
 
 const FALLBACK_YEAR = 2026;
 const LINES = [
@@ -29,6 +30,14 @@ const HEADER_H = 72;   // increased to fit month + week row
 const ROW_H = 76;
 const MIN_DRAW_PX = 10;
 const EXCEL_API_URL = "http://127.0.0.1:5174";
+
+async function readExcelApiJson(res) {
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error("Start Excel sync server with npm run dev:excel");
+  }
+  return res.json();
+}
 const STATUS_CONFIG = {
   forecast:   { label: "Forecast",   color: "#64748b", bg: "#f1f5f9" },
   approved:   { label: "Approved",   color: "#2563eb", bg: "#dbeafe" },
@@ -134,7 +143,6 @@ const SAMPLE_JOBS = [
     notes: "Not yet assigned to a line.",
   },
 ];
-
 let nextId = 1000;
 
 function daysInMonth(year, month) {
@@ -233,11 +241,13 @@ function latestDate(...dates) {
   return dates.reduce((latest, date) => date > latest ? date : latest, dates[0]);
 }
 
-function getTrackRange(job) {
+function getTrackRange(job, scheduleView) {
   const dates = getMilestoneDates(job);
   return {
     start: dates.start,
-    end: latestDate(dates.offLine, dates.end, dates.due),
+    end: scheduleView === "production"
+      ? dates.offLine
+      : latestDate(dates.offLine, dates.end, dates.due),
   };
 }
 
@@ -249,7 +259,7 @@ function getScheduleEnd(job, scheduleView) {
 
 function getMilestoneLayout(job, scheduleView) {
   const dates = getMilestoneDates(job);
-  const trackRange = getTrackRange(job);
+  const trackRange = getTrackRange(job, scheduleView);
   const scheduleEnd = getScheduleEnd(job, scheduleView);
   const view = SCHEDULE_VIEWS.find((item) => item.id === scheduleView) || SCHEDULE_VIEWS[0];
   const schedulePct = percentBetween(trackRange.start, trackRange.end, scheduleEnd);
@@ -409,6 +419,10 @@ function formatMoney(value) {
   }).format(value);
 }
 
+function formatProtectedMoney(value, canViewPrices) {
+  return canViewPrices ? formatMoney(value) : "Price locked";
+}
+
 function getProjectedRevenue(job) {
   return job.modules * 145000;
 }
@@ -419,6 +433,27 @@ function getPipelineStage(job, index) {
   if (job.status === "approved") return PIPELINE_STAGES[3];
   return PIPELINE_STAGES[4];
 }
+
+const SAMPLE_PIPELINE_DEALS = SAMPLE_JOBS.map((job, index) => {
+  const stage = getPipelineStage(job, index);
+  const amount = getProjectedRevenue(job);
+  return {
+    id: `deal-${job.id}`,
+    opportunityName: job.name,
+    client: job.client,
+    stage: stage.id,
+    probability: stage.probability,
+    amount,
+    weightedAmount: Math.round(amount * (stage.probability / 100)),
+    expectedCloseDate: addDays(job.start, -45 - (index % 4) * 12),
+    estimator: "",
+    projectManager: "",
+    notes: job.notes || "",
+    sourceType: "",
+    sourceSheet: "",
+    sourceRow: null,
+  };
+});
 
 function integrationStatus(job) {
   const hasNetSuite = Boolean(job.jobNumber || job.master?.contract || job.sourceType === "master");
@@ -432,22 +467,43 @@ function integrationStatus(job) {
 function ModuleWorkspace({
   module,
   jobs,
+  pipelineDeals,
   kpis,
   risks,
   lineUtilization,
   excelSync,
   onOpenProduction,
+  canViewPrices,
 }) {
-  const pipelineRows = jobs.map((job, index) => {
-    const stage = getPipelineStage(job, index);
-    const revenue = getProjectedRevenue(job);
+  const [pipelineSearch, setPipelineSearch] = useState("");
+  const [pipelineClientFilter, setPipelineClientFilter] = useState("all");
+  const [pipelineBdmFilter, setPipelineBdmFilter] = useState("all");
+  const [pipelineStageFilter, setPipelineStageFilter] = useState("all");
+  const [pipelineBuildingFilter, setPipelineBuildingFilter] = useState("all");
+
+  const pipelineRows = pipelineDeals.map((deal, index) => {
+    const stage = PIPELINE_STAGES.find((item) => item.id === deal.stage) || getPipelineStage(jobs[index] || { status: "forecast" }, index);
+    const revenue = Number(deal.amount) || 0;
     return {
-      job,
+      deal,
       stage,
       revenue,
-      weighted: Math.round(revenue * (stage.probability / 100)),
-      closeDate: addDays(job.start, -45 - (index % 4) * 12),
+      weighted: Number(deal.weightedAmount) || Math.round(revenue * (stage.probability / 100)),
+      closeDate: deal.expectedCloseDate || addDays(formatDate(new Date()), 30 + index * 7),
     };
+  });
+
+  const pipelineClients = Array.from(new Set(pipelineRows.map((row) => row.deal.client).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const pipelineBdms = Array.from(new Set(pipelineRows.map((row) => row.deal.estimator).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const pipelineBuildingTypes = Array.from(new Set(pipelineRows.map((row) => row.deal.buildingType).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const filteredPipelineRows = pipelineRows.filter(({ deal, stage }) => {
+    const matchesClient = pipelineClientFilter === "all" || deal.client === pipelineClientFilter;
+    const matchesBdm = pipelineBdmFilter === "all" || (deal.estimator || "") === pipelineBdmFilter;
+    const matchesStage = pipelineStageFilter === "all" || stage.id === pipelineStageFilter;
+    const matchesBuilding = pipelineBuildingFilter === "all" || (deal.buildingType || "") === pipelineBuildingFilter;
+    const haystack = `${deal.opportunityName} ${deal.client} ${deal.notes || ""} ${deal.jobNumber || ""}`.toLowerCase();
+    const matchesSearch = !pipelineSearch.trim() || haystack.includes(pipelineSearch.trim().toLowerCase());
+    return matchesClient && matchesBdm && matchesStage && matchesBuilding && matchesSearch;
   });
 
   const pipelineTotals = PIPELINE_STAGES.map((stage) => {
@@ -455,7 +511,7 @@ function ModuleWorkspace({
     return {
       ...stage,
       count: rows.length,
-      modules: rows.reduce((sum, row) => sum + row.job.modules, 0),
+      modules: rows.length,
       weighted: rows.reduce((sum, row) => sum + row.weighted, 0),
     };
   });
@@ -546,20 +602,51 @@ function ModuleWorkspace({
     return (
       <section className="ps-module-page" aria-label={module.title}>
         <ModuleHead module={module} eyebrow="Sales to production" />
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Pipeline Filters</h2>
+            <span>Filter by customer, BDM, stage, and building type</span>
+          </div>
+          <div className="ps-pipeline-filters">
+            <input
+              className="ps-input"
+              type="search"
+              placeholder="Search project, customer, job #, notes"
+              value={pipelineSearch}
+              onChange={(event) => setPipelineSearch(event.target.value)}
+            />
+            <select className="ps-input" value={pipelineClientFilter} onChange={(event) => setPipelineClientFilter(event.target.value)}>
+              <option value="all">All Customers</option>
+              {pipelineClients.map((client) => <option key={client} value={client}>{client}</option>)}
+            </select>
+            <select className="ps-input" value={pipelineBdmFilter} onChange={(event) => setPipelineBdmFilter(event.target.value)}>
+              <option value="all">All BDMs</option>
+              {pipelineBdms.map((bdm) => <option key={bdm} value={bdm}>{bdm}</option>)}
+            </select>
+            <select className="ps-input" value={pipelineStageFilter} onChange={(event) => setPipelineStageFilter(event.target.value)}>
+              <option value="all">All Stages</option>
+              {PIPELINE_STAGES.map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
+            </select>
+            <select className="ps-input" value={pipelineBuildingFilter} onChange={(event) => setPipelineBuildingFilter(event.target.value)}>
+              <option value="all">All Building Types</option>
+              {pipelineBuildingTypes.map((building) => <option key={building} value={building}>{building}</option>)}
+            </select>
+          </div>
+        </section>
         <div className="ps-stage-board">
           {pipelineTotals.map((stage) => (
             <section key={stage.id} className="ps-stage-column">
               <div className="ps-stage-head">
                 <strong>{stage.label}</strong>
-                <span>{stage.count} deals - {formatMoney(stage.weighted)}</span>
+                <span>{stage.count} deals - {formatProtectedMoney(stage.weighted, canViewPrices)}</span>
               </div>
-              {pipelineRows.filter((row) => row.stage.id === stage.id).map(({ job, revenue, weighted, closeDate }) => (
-                <button key={job.id} type="button" className="ps-deal-card" onClick={() => onOpenProduction(job.id)}>
-                  <strong>{job.name}</strong>
-                  <span>{job.client}</span>
-                  <small>{job.modules} modules - {formatMoney(revenue)}</small>
+              {pipelineRows.filter((row) => row.stage.id === stage.id).map(({ deal, revenue, weighted, closeDate }) => (
+                <button key={deal.id} type="button" className="ps-deal-card" onClick={() => onOpenProduction(jobs[0]?.id)}>
+                  <strong>{deal.opportunityName}</strong>
+                  <span>{deal.client}</span>
+                  <small>{formatProtectedMoney(revenue, canViewPrices)}</small>
                   <div>
-                    <b>{formatMoney(weighted)} weighted</b>
+                    <b>{canViewPrices ? `${formatMoney(weighted)} weighted` : "Weighted price locked"}</b>
                     <em>{displayDate(closeDate)}</em>
                   </div>
                 </button>
@@ -567,6 +654,44 @@ function ModuleWorkspace({
             </section>
           ))}
         </div>
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>2026 Sales Pipeline</h2>
+            <span>{filteredPipelineRows.length} opportunities shown</span>
+          </div>
+          <div className="ps-pipeline-table-wrap">
+            <table className="ps-pipeline-table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Project Name</th>
+                  <th>BDM</th>
+                  <th>Job #</th>
+                  <th>Contract Value</th>
+                  <th>Building Type</th>
+                  <th>Stage</th>
+                  <th>Close Date</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPipelineRows.map(({ deal, stage, revenue, closeDate }) => (
+                  <tr key={deal.id}>
+                    <td>{deal.client || "-"}</td>
+                    <td>{deal.opportunityName || "-"}</td>
+                    <td>{deal.estimator || "-"}</td>
+                    <td>{deal.jobNumber || "-"}</td>
+                    <td>{formatProtectedMoney(revenue, canViewPrices)}</td>
+                    <td>{deal.buildingType || "-"}</td>
+                    <td>{stage.label}</td>
+                    <td>{displayDate(closeDate)}</td>
+                    <td>{deal.notes || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </section>
     );
   }
@@ -605,7 +730,7 @@ function ModuleWorkspace({
   if (module.id === "reports") {
     const reports = [
       { name: "Executive Operating Summary", owner: "Leadership", cadence: "Weekly", metric: `${kpis.jobs} jobs` },
-      { name: "Sales Forecast to Capacity", owner: "Sales + Plant", cadence: "Weekly", metric: formatMoney(pipelineRows.reduce((sum, row) => sum + row.weighted, 0)) },
+      { name: "Sales Forecast to Capacity", owner: "Sales + Plant", cadence: "Weekly", metric: formatProtectedMoney(pipelineRows.reduce((sum, row) => sum + row.weighted, 0), canViewPrices) },
       { name: "Production Readiness Exceptions", owner: "Operations", cadence: "Daily", metric: `${bridgeGaps.length} gaps` },
       { name: "Ship and Set Lookahead", owner: "Project Management", cadence: "Daily", metric: `${jobs.filter((job) => job.end <= addDays(formatDate(new Date()), 60)).length} upcoming` },
     ];
@@ -755,7 +880,7 @@ function buildWeekTicks(dayPx, timelineStart, timelineEnd) {
   return ticks;
 }
 
-export default function ProductionScheduler() {
+export default function ProductionScheduler({ currentUser, permissions, onLogout }) {
   const {
     jobs,
     setJobs,
@@ -765,6 +890,10 @@ export default function ProductionScheduler() {
     refresh: dbRefresh,
     isSupabase,
   } = useJobs(SAMPLE_JOBS, normalizeJob);
+  const {
+    deals: pipelineDeals,
+    setDealsBulk: setPipelineDealsBulk,
+  } = usePipelineDeals(SAMPLE_PIPELINE_DEALS);
 
   const [selectedId, setSelectedId] = useState(null);
   const [dragging, setDragging] = useState(null);
@@ -783,6 +912,7 @@ export default function ProductionScheduler() {
     lastSyncedAt: "",
     message: "Excel sync not connected",
   });
+  const canViewPrices = Boolean(permissions?.canViewPrices);
   const gridRef = useRef(null);
   const fileRef = useRef(null);
   const dragRef = useRef(null);
@@ -979,7 +1109,7 @@ export default function ProductionScheduler() {
     setExcelSync((c) => ({ ...c, busy: true, message: "Reading Excel..." }));
     try {
       const res = await fetch(`${EXCEL_API_URL}/api/jobs`);
-      const payload = await res.json();
+      const payload = await readExcelApiJson(res);
       if (!res.ok) throw new Error(payload.error || "Excel sync failed");
       const imported = payload.jobs.map(normalizeJob);
       setJobsBulk(imported);          // single bulk upsert → Supabase
@@ -995,6 +1125,40 @@ export default function ProductionScheduler() {
     }
   }, [showToast]);
 
+  const syncFromSalesExcel = useCallback(async ({ quiet = false } = {}) => {
+    setExcelSync((c) => ({ ...c, busy: true, message: "Reading sales pipeline Excel..." }));
+    try {
+      const res = await fetch(`${EXCEL_API_URL}/api/pipeline`);
+      const payload = await readExcelApiJson(res);
+      if (!res.ok) throw new Error(payload.error || "Sales pipeline sync failed");
+      const imported = (payload.deals || []).map((deal, index) => ({
+        id: deal.id || `deal-import-${index}`,
+        opportunityName: deal.opportunityName || deal.name || "Opportunity",
+        client: deal.client || "",
+        stage: deal.stage || "lead",
+        probability: Number(deal.probability) || 15,
+        amount: Number(deal.amount) || 0,
+        weightedAmount: Number(deal.weightedAmount) || 0,
+        expectedCloseDate: deal.expectedCloseDate || "",
+        estimator: deal.estimator || "",
+        projectManager: deal.projectManager || "",
+        notes: deal.notes || "",
+        sourceType: deal.sourceType || "sales_excel",
+        sourceSheet: deal.sourceSheet || "",
+        sourceRow: deal.sourceRow || null,
+      }));
+      setPipelineDealsBulk(imported);
+      setExcelSync({ connected: true, busy: false, lastSyncedAt: payload.syncedAt, message: `Loaded ${imported.length} deals from sales Excel` });
+      if (!quiet) showToast("Synced sales pipeline from Excel");
+    } catch (err) {
+      setExcelSync({
+        connected: false, busy: false, lastSyncedAt: "",
+        message: err.message.includes("fetch") ? "Start Excel sync server with npm run dev:excel" : err.message,
+      });
+      if (!quiet) showToast("Sales pipeline sync unavailable");
+    }
+  }, [setPipelineDealsBulk, showToast]);
+
   useEffect(() => {
     const t = window.setTimeout(() => syncFromExcel({ quiet: true }), 0);
     return () => window.clearTimeout(t);
@@ -1008,7 +1172,7 @@ export default function ProductionScheduler() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobs }),
       });
-      const payload = await res.json();
+      const payload = await readExcelApiJson(res);
       if (!res.ok) throw new Error(payload.error || "Excel save failed");
       setExcelSync({ connected: true, busy: false, lastSyncedAt: payload.syncedAt, message: `Saved ${payload.saved} jobs to Excel` });
       showToast("Saved to Excel");
@@ -1018,6 +1182,27 @@ export default function ProductionScheduler() {
         message: err.message.includes("fetch") ? "Start Excel sync server with npm run dev:excel" : err.message,
       });
       showToast("Excel save failed");
+    }
+  }
+
+  async function savePipelineToExcel() {
+    setExcelSync((c) => ({ ...c, busy: true, message: "Saving sales pipeline Excel..." }));
+    try {
+      const res = await fetch(`${EXCEL_API_URL}/api/pipeline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deals: pipelineDeals }),
+      });
+      const payload = await readExcelApiJson(res);
+      if (!res.ok) throw new Error(payload.error || "Sales pipeline save failed");
+      setExcelSync({ connected: true, busy: false, lastSyncedAt: payload.syncedAt, message: `Saved ${payload.saved} deals to sales Excel` });
+      showToast("Saved sales pipeline to Excel");
+    } catch (err) {
+      setExcelSync({
+        connected: false, busy: false, lastSyncedAt: "",
+        message: err.message.includes("fetch") ? "Start Excel sync server with npm run dev:excel" : err.message,
+      });
+      showToast("Sales pipeline save failed");
     }
   }
 
@@ -1330,6 +1515,11 @@ export default function ProductionScheduler() {
           ))}
         </nav>
         <div className="ps-actions">
+          <div className="ps-user-badge">
+            <strong>{currentUser?.name || "Signed in"}</strong>
+            <span>{canViewPrices ? "Pricing access" : "Pricing hidden"}</span>
+          </div>
+          <Button tone="quiet" onClick={onLogout}>Log out</Button>
           {activeModule === "production" && (
             <>
               <Button onClick={() => addJob("L1")}>+ Job</Button>
@@ -1338,6 +1528,12 @@ export default function ProductionScheduler() {
               <Button tone="quiet" onClick={syncFromExcel} disabled={excelSync.busy}>Sync Excel</Button>
               <Button tone="quiet" onClick={saveToExcel} disabled={excelSync.busy}>Save Excel</Button>
               <Button tone="dark" onClick={exportCSV}>Export</Button>
+            </>
+          )}
+          {activeModule === "pipeline" && (
+            <>
+              <Button tone="quiet" onClick={syncFromSalesExcel} disabled={excelSync.busy}>Sync Sales Excel</Button>
+              <Button tone="quiet" onClick={savePipelineToExcel} disabled={excelSync.busy}>Save Sales Excel</Button>
             </>
           )}
           <input ref={fileRef} type="file" accept=".csv" className="ps-hidden" onChange={onFileChange} />
@@ -1531,6 +1727,7 @@ export default function ProductionScheduler() {
                 const hasOverlap = overlaps.some((o) => o.jobs.includes(job.id));
                 const late = job.end > job.due;
                 const layout = getMilestoneLayout(job, scheduleView);
+                const showFollowOnDates = scheduleView !== "production";
                 const width = Math.max(30, dateDiffDays(layout.trackRange.start, layout.trackRange.end) * dayPx);
                 const scheduleWidth = `${Math.max(4, layout.schedulePct)}%`;
                 const shipShadeLeft = `${Math.min(layout.offLinePct, layout.shipPct)}%`;
@@ -1549,16 +1746,20 @@ export default function ProductionScheduler() {
                     title={`${job.name}\n${layout.view.endLabel} view\nTopset: ${displayDate(layout.dates.start)}\nTopset Complete: ${displayDate(layout.dates.offLine)}\nShipping: ${displayDate(layout.dates.end)}\nSet: ${displayDate(layout.dates.due)}\n${job.modules} modules`}
                     onMouseDown={(e) => startDrag(e, job.id)}
                   >
-                    <i
-                      className="ps-job-shade ps-job-shade-ship"
-                      style={{ left: shipShadeLeft, width: shipShadeWidth, background: layout.shippingShade }}
-                      title={`Shipping: ${displayDate(layout.dates.end)}`}
-                    />
-                    <i
-                      className="ps-job-shade ps-job-shade-set"
-                      style={{ left: setShadeLeft, width: setShadeWidth, background: layout.setShade }}
-                      title={`Set: ${displayDate(layout.dates.due)}`}
-                    />
+                    {showFollowOnDates && (
+                      <>
+                        <i
+                          className="ps-job-shade ps-job-shade-ship"
+                          style={{ left: shipShadeLeft, width: shipShadeWidth, background: layout.shippingShade }}
+                          title={`Shipping: ${displayDate(layout.dates.end)}`}
+                        />
+                        <i
+                          className="ps-job-shade ps-job-shade-set"
+                          style={{ left: setShadeLeft, width: setShadeWidth, background: layout.setShade }}
+                          title={`Set: ${displayDate(layout.dates.due)}`}
+                        />
+                      </>
+                    )}
                     <i
                       className="ps-job-core"
                       style={{ width: scheduleWidth, background: layout.coreBackground }}
@@ -1579,12 +1780,16 @@ export default function ProductionScheduler() {
                     <i className="ps-date-line ps-date-line-offline" style={{ left: `${layout.offLinePct}%` }} title={`Topset Complete: ${displayDate(layout.dates.offLine)}`}>
                       <span>Topset Complete</span>
                     </i>
-                    <i className="ps-date-line ps-date-line-ship" style={{ left: `${layout.shipPct}%` }} title={`Ship: ${displayDate(layout.dates.end)}`}>
-                      <span>Shipping</span>
-                    </i>
-                    <i className="ps-date-line ps-date-line-set" style={{ left: `${layout.setPct}%` }} title={`Set: ${displayDate(layout.dates.due)}`}>
-                      <span>Set</span>
-                    </i>
+                    {showFollowOnDates && (
+                      <>
+                        <i className="ps-date-line ps-date-line-ship" style={{ left: `${layout.shipPct}%` }} title={`Ship: ${displayDate(layout.dates.end)}`}>
+                          <span>Shipping</span>
+                        </i>
+                        <i className="ps-date-line ps-date-line-set" style={{ left: `${layout.setPct}%` }} title={`Set: ${displayDate(layout.dates.due)}`}>
+                          <span>Set</span>
+                        </i>
+                      </>
+                    )}
                     <span>{job.name}</span>
                     <small>{layout.view.endLabel} {displayDate(getScheduleEnd(job, scheduleView))} · {job.modules} mod</small>
                     <b style={{ width: `${job.progress}%` }} />
@@ -1869,10 +2074,12 @@ export default function ProductionScheduler() {
         <ModuleWorkspace
           module={activeModuleConfig}
           jobs={jobs}
+          pipelineDeals={pipelineDeals}
           kpis={kpis}
           risks={risks}
           lineUtilization={lineUtilization}
           excelSync={excelSync}
+          canViewPrices={canViewPrices}
           onOpenProduction={(jobId) => {
             setSelectedId(jobId);
             setStatusFilter("all");

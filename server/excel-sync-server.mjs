@@ -9,6 +9,10 @@ const WORKBOOK_PATH =
   process.env.PRODUCTION_SCHEDULE_XLSX ||
   "C:\\Users\\Michael Li\\OneDrive - Webb Family Enterprises\\SCM AI\\SCM Production Schedule - Master Excel (1).xlsx";
 const SHEET_NAME = process.env.PRODUCTION_SCHEDULE_SHEET || "On Line Upcoming";
+const SALES_PIPELINE_PATH =
+  process.env.SALES_PIPELINE_XLSX ||
+  "C:\\Users\\Michael Li\\OneDrive - Webb Family Enterprises\\SCM AI\\SCM Sales & Engineering Pipeline.xlsx";
+const SALES_PIPELINE_SHEET = process.env.SALES_PIPELINE_SHEET || "2026 Sales Pipeline";
 const ADDITIONS_SHEET = "Website Additions";
 
 const SIMPLE_HEADERS = [
@@ -379,6 +383,122 @@ function writeJobs(jobs) {
   return isMasterWorkbook(workbook) ? writeMasterJobs(workbook, jobs) : writeSimpleJobs(workbook, jobs);
 }
 
+function normalizeHeader(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+function parseNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  const numeric = text.replace(/[^0-9.-]+/g, "");
+  const parsed = Number(numeric);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function confidenceToProbability(value) {
+  const number = parseNumber(value);
+  if (!number) return 15;
+  if (number <= 1) return Math.max(0, Math.min(100, Math.round(number * 100)));
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function inferStageFromProbability(probability) {
+  if (probability >= 95) return "handoff";
+  if (probability >= 80) return "award";
+  if (probability >= 55) return "proposal";
+  if (probability >= 35) return "estimate";
+  return "lead";
+}
+
+function mapPipelineRowToDeal(row, index, sheetName) {
+  const probability = Number(row.probability || row.win_probability || confidenceToProbability(row.confidence_level)) || 15;
+  const stage = String(row.stage || row.pipeline_stage || row.status || inferStageFromProbability(probability)).toLowerCase();
+  const amount = parseNumber(row.amount || row.value || row.contract_value || row.contract__value || 0);
+  const weightedAmount = Number(row.weighted_amount || row.weighted || Math.round(amount * (probability / 100))) || 0;
+  const statusNotes = String(row.current_status_notes || row.current_status_notes_ || row.notes || row.comments || "");
+  return {
+    id: String(row.id || row.opportunity_id || row.deal_id || `sales-${index + 2}`),
+    opportunityName: String(row.opportunity_name || row.opportunity || row.project_name || row.project || row.name || "Opportunity"),
+    client: String(row.client || row.customer || row.district || ""),
+    stage,
+    probability,
+    amount,
+    weightedAmount,
+    expectedCloseDate: parseScheduleDate(
+      row.expected_close_date || row.close_date || row.target_close || row.district_occupancy_date || row.start_date_for_production || "",
+    ) || "",
+    estimator: String(row.bdm || row.estimator || row.estimating || ""),
+    projectManager: String(row.project_manager || row.pm || ""),
+    notes: statusNotes,
+    jobNumber: String(row.job_number || row.job_no || ""),
+    buildingType: String(row.buildings || row.building_s_ || row.building_type || ""),
+    confidenceLevel: String(row.confidence_level || ""),
+    contractType: String(row.contract_type || ""),
+    bidType: String(row.bid_piggyback || row.bid_type || ""),
+    sourceType: "sales_excel",
+    sourceSheet: sheetName,
+    sourceRow: index + 2,
+  };
+}
+
+function readPipelineDeals() {
+  if (!existsSync(SALES_PIPELINE_PATH)) throw new Error(`Sales pipeline workbook not found: ${SALES_PIPELINE_PATH}`);
+  const workbook = XLSX.readFile(SALES_PIPELINE_PATH, { cellDates: true });
+  const sheetName = SALES_PIPELINE_SHEET || workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) throw new Error("Sales pipeline workbook does not contain any sheets");
+
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+  if (!rows.length) return [];
+  const headerIndex = rows.findIndex((row, i) => {
+    if (i > 10) return false;
+    const normalized = row.map(normalizeHeader);
+    return normalized.includes("customer") && normalized.includes("project_name");
+  });
+  const startRow = headerIndex >= 0 ? headerIndex : 0;
+  const headers = rows[startRow].map(normalizeHeader);
+  return rows.slice(startRow + 1).filter((row) => row.some((cell) => String(cell ?? "").trim())).map((row, index) => {
+    const shaped = headers.reduce((acc, header, i) => ({ ...acc, [header]: row[i] }), {});
+    return mapPipelineRowToDeal(shaped, index, sheetName);
+  });
+}
+
+function writePipelineDeals(deals) {
+  const workbook = existsSync(SALES_PIPELINE_PATH)
+    ? XLSX.readFile(SALES_PIPELINE_PATH, { cellDates: true })
+    : XLSX.utils.book_new();
+  const sheetName = SALES_PIPELINE_SHEET || workbook.SheetNames[0] || "Sales Pipeline";
+  const headers = [
+    "id", "opportunity_name", "client", "stage", "probability", "amount",
+    "weighted_amount", "expected_close_date", "estimator", "project_manager", "notes",
+    "job_number", "building_type", "confidence_level", "contract_type", "bid_type",
+  ];
+  const rows = deals.map((deal) => ({
+    id: deal.id,
+    opportunity_name: deal.opportunityName,
+    client: deal.client,
+    stage: deal.stage,
+    probability: deal.probability,
+    amount: deal.amount,
+    weighted_amount: deal.weightedAmount,
+    expected_close_date: deal.expectedCloseDate,
+    estimator: deal.estimator,
+    project_manager: deal.projectManager,
+    notes: deal.notes,
+    job_number: deal.jobNumber,
+    building_type: deal.buildingType,
+    confidence_level: deal.confidenceLevel,
+    contract_type: deal.contractType,
+    bid_type: deal.bidType,
+  }));
+  const sheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+  if (workbook.SheetNames.includes(sheetName)) workbook.Sheets[sheetName] = sheet;
+  else XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+  XLSX.writeFile(workbook, SALES_PIPELINE_PATH);
+  return { updated: deals.length };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -417,6 +537,30 @@ const server = http.createServer(async (req, res) => {
         saved: body.jobs.length,
         ...result,
         workbookPath: WORKBOOK_PATH,
+        syncedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/pipeline") {
+      sendJson(res, 200, {
+        deals: readPipelineDeals(),
+        workbookPath: SALES_PIPELINE_PATH,
+        sheetName: SALES_PIPELINE_SHEET || null,
+        syncedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pipeline") {
+      const body = JSON.parse(await readBody(req));
+      if (!Array.isArray(body.deals)) throw new Error("Expected body.deals to be an array");
+      const result = writePipelineDeals(body.deals);
+      sendJson(res, 200, {
+        ok: true,
+        saved: body.deals.length,
+        ...result,
+        workbookPath: SALES_PIPELINE_PATH,
         syncedAt: new Date().toISOString(),
       });
       return;

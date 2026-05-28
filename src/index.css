@@ -1962,3 +1962,295 @@ body {
 .ps-queue-item strong { font-size: 13px; color: var(--text-1); }
 .ps-queue-item span   { font-size: 12px; color: var(--text-2); }
 .ps-queue-item small  { font-size: 11px; color: var(--text-3); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Capacity Planner Tab
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ps-capacity-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+@media (max-width: 900px) { .ps-capacity-kpi-row { grid-template-columns: repeat(2, 1fr); } }
+
+.ps-capacity-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ps-capacity-kpi.is-warn { border-color: #f59e0b; background: #fffbeb; }
+.ps-capacity-kpi span { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+.ps-capacity-kpi strong { font-size: 26px; font-weight: 800; color: var(--text-1); line-height: 1.1; }
+.ps-capacity-kpi small { font-size: 11px; color: var(--text-3); }
+
+.ps-capacity-chart {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.ps-capacity-month {
+  flex: 0 0 calc(25% - 9px);
+  min-width: 180px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+@media (max-width: 1100px) { .ps-capacity-month { flex: 0 0 calc(33% - 8px); } }
+
+.ps-capacity-month-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+  margin-bottom: 2px;
+}
+
+.ps-capacity-bars { display: flex; flex-direction: column; gap: 5px; }
+
+.ps-capacity-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.ps-capacity-line-label {
+  width: 22px;
+  font-weight: 700;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.ps-capacity-bar-track {
+  flex: 1;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ps-capacity-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .3s;
+}
+.ps-capacity-bar-fill.is-green  { background: #22c55e; }
+.ps-capacity-bar-fill.is-amber  { background: #f59e0b; }
+.ps-capacity-bar-fill.is-red    { background: #ef4444; }
+.ps-capacity-bar-fill.is-blue   { background: #60a5fa; }
+
+.ps-capacity-bar-pct {
+  width: 30px;
+  text-align: right;
+  color: var(--text-2);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.ps-capacity-avg { font-size: 11px; font-weight: 700; text-align: right; padding-top: 3px; }
+.ps-capacity-avg.is-green { color: #16a34a; }
+.ps-capacity-avg.is-amber { color: #b45309; }
+.ps-capacity-avg.is-red   { color: #b91c1c; }
+.ps-capacity-avg.is-blue  { color: #2563eb; }
+
+.ps-capacity-pipeline-note {
+  font-size: 10px;
+  color: #7c3aed;
+  font-weight: 600;
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 4px;
+}
+.ps-capacity-modules-note { font-size: 10px; color: var(--text-3); }
+
+.ps-alert-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  margin-bottom: 6px;
+}
+.ps-alert-row.is-red  { background: #fee2e2; }
+.ps-alert-row.is-blue { background: #dbeafe; }
+.ps-alert-row strong { font-size: 13px; color: var(--text-1); }
+.ps-alert-row small  { font-size: 11px; color: var(--text-2); margin-left: auto; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Submittal & Approval Tracker
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ps-submittal-table th, .ps-submittal-table td { white-space: nowrap; }
+.ps-submittal-table td { vertical-align: middle; }
+
+.ps-submittal-row-warn { background: #fffbeb !important; }
+.ps-submittal-row-warn:hover { background: #fef3c7 !important; }
+
+.ps-sub-empty   { color: #94a3b8; font-size: 11px; }
+.ps-sub-missing { color: #ef4444; font-weight: 600; }
+.ps-sub-sent    { color: #2563eb; font-size: 12px; font-weight: 600; }
+.ps-sub-received { color: #16a34a; font-size: 12px; font-weight: 600; }
+.ps-sub-pending { color: #b45309; font-size: 11px; font-weight: 600; }
+.ps-sub-warn    { color: #b45309; font-size: 12px; font-weight: 600; }
+.ps-sub-age     { font-size: 12px; font-weight: 700; color: var(--text-2); }
+.ps-sub-age.is-overdue { color: #b91c1c; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Dashboard Enhancements: Late Jobs + Week-Ahead
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ps-week-ahead {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 800px) { .ps-week-ahead { grid-template-columns: 1fr; } }
+
+.ps-week-col {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ps-week-col-head {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-1);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ps-week-col-head span {
+  background: #e2e8f0;
+  color: #475569;
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ps-week-job {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+  transition: background .1s;
+  width: 100%;
+}
+.ps-week-job:hover { background: #f8fafc; }
+.ps-week-job i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ps-week-job span { font-size: 12px; font-weight: 600; color: var(--text-1); flex: 1; }
+.ps-week-job small { font-size: 10px; color: var(--text-3); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Pipeline Enhancements: Forecast Chart + Convert Button
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ps-pipeline-forecast {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.ps-forecast-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.ps-forecast-label {
+  width: 80px;
+  flex-shrink: 0;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 11px;
+}
+.ps-forecast-track {
+  flex: 1;
+  height: 14px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ps-forecast-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #818cf8);
+  border-radius: 6px;
+  transition: width .4s;
+}
+.ps-forecast-val {
+  width: 110px;
+  text-align: right;
+  flex-shrink: 0;
+  color: var(--text-1);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.ps-deal-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ps-deal-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  transition: background .1s;
+}
+.ps-deal-card-body:hover { background: var(--surface-2); }
+.ps-deal-card-body strong { font-size: 12px; font-weight: 700; color: var(--text-1); }
+.ps-deal-card-body span  { font-size: 11px; color: var(--text-2); }
+.ps-deal-card-body small { font-size: 10px; color: var(--text-3); }
+.ps-deal-card-body div   { display: flex; justify-content: space-between; margin-top: 4px; }
+.ps-deal-card-body b     { font-size: 11px; color: #2563eb; font-weight: 700; }
+.ps-deal-card-body em    { font-size: 10px; color: var(--text-3); }
+
+.ps-deal-convert-btn {
+  padding: 5px 10px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  border-top: 1px solid #bbf7d0;
+  cursor: pointer;
+  text-align: center;
+  transition: background .1s;
+  width: 100%;
+}
+.ps-deal-convert-btn:hover { background: #bbf7d0; }

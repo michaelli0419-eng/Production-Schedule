@@ -16,6 +16,8 @@ const QUEUE = "QUEUE";
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", title: "Company Dashboard", description: "A command view for backlog, line capacity, sales handoffs, risks, and current operational priorities." },
   { id: "production", label: "Production", title: "Production Schedule", description: "Factory line scheduling, date control, readiness, conflicts, and queued production work." },
+  { id: "capacity", label: "Capacity Planner", title: "Capacity Planner", description: "Forward-looking line load vs. capacity by month, with pipeline probability weighting for demand forecasting." },
+  { id: "submittals", label: "Submittals", title: "Submittal & Approval Tracker", description: "Track all pending submittals, DSA approvals, inspector assignments, and aging documents across active jobs." },
   { id: "pipeline", label: "Sales Pipeline", title: "Sales Pipeline", description: "Track opportunities from lead through award before they become scheduled production jobs." },
   { id: "projects", label: "Projects", title: "Projects", description: "One shared project record connecting sales, production, shipping, site set, NetSuite, and Procore context." },
   { id: "reports", label: "Reports", title: "Reports", description: "Reusable operating reports for leadership, sales, production, and project teams." },
@@ -499,6 +501,7 @@ function ModuleWorkspace({
   lineUtilization,
   excelSync,
   onOpenProduction,
+  onAddJobFromDeal,
   canViewPrices,
   userAdmin,
 }) {
@@ -507,6 +510,9 @@ function ModuleWorkspace({
   const [pipelineBdmFilter, setPipelineBdmFilter] = useState("all");
   const [pipelineStageFilter, setPipelineStageFilter] = useState("all");
   const [pipelineBuildingFilter, setPipelineBuildingFilter] = useState("all");
+  const [subSearch, setSubSearch] = useState("");
+  const [subStatusFilter, setSubStatusFilter] = useState("all");
+  const [subLineFilter, setSubLineFilter] = useState("all");
 
   const pipelineRows = pipelineDeals.map((deal, index) => {
     const stage = PIPELINE_STAGES.find((item) => item.id === deal.stage) || getPipelineStage(jobs[index] || { status: "forecast" }, index);
@@ -709,6 +715,68 @@ function ModuleWorkspace({
               )) : <p className="ps-empty">No current conflicts.</p>}
             </div>
           </section>
+
+          {/* Late jobs aging table */}
+          <section className="ps-table-panel">
+            <div className="ps-section-head">
+              <h2>Late Jobs — Aging</h2>
+              <span>Jobs where shipping date exceeds set (due) date</span>
+            </div>
+            {lateJobs === 0
+              ? <p className="ps-empty">No late jobs. All shipping dates are within due dates.</p>
+              : (
+                <div className="ps-project-table">
+                  <div className="ps-project-row is-header">
+                    <span>Job</span><span>Line</span><span>Ship Date</span><span>Due Date</span><span>Days Late</span><span>Owner</span>
+                  </div>
+                  {jobs.filter((j) => LINE_IDS.includes(j.line) && j.end > j.due).sort((a, b) => dateDiffDays(a.due, a.end) > dateDiffDays(b.due, b.end) ? -1 : 1).map((j) => {
+                    const daysLate = dateDiffDays(j.due, j.end);
+                    return (
+                      <button key={j.id} type="button" className="ps-project-row" onClick={() => onOpenProduction(j.id)}>
+                        <span><strong>{j.name}</strong><small>{j.client}</small></span>
+                        <span>{j.line}</span>
+                        <span><strong style={{ color: "#b91c1c" }}>{displayDate(j.end)}</strong></span>
+                        <span>{displayDate(j.due)}</span>
+                        <span><i className="ps-pill is-red">{daysLate}d late</i></span>
+                        <span><small>{j.master?.inspector || "—"}</small></span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+          </section>
+
+          {/* Week-ahead digest */}
+          <section className="ps-table-panel">
+            <div className="ps-section-head">
+              <h2>Week-Ahead Digest</h2>
+              <span>Starting, shipping, and being set in the next 7 days</span>
+            </div>
+            <div className="ps-week-ahead">
+              {["Starting", "Shipping", "Setting"].map((type, ti) => {
+                const weekEnd = addDays(today, 7);
+                const digest = jobs.filter((j) => {
+                  if (ti === 0) return j.start >= today && j.start <= weekEnd;
+                  if (ti === 1) return j.end >= today && j.end <= weekEnd;
+                  return j.due >= today && j.due <= weekEnd;
+                });
+                return (
+                  <div key={type} className="ps-week-col">
+                    <div className="ps-week-col-head">{type} <span>{digest.length}</span></div>
+                    {digest.length === 0
+                      ? <p className="ps-empty" style={{ padding: "8px 0" }}>None this week</p>
+                      : digest.map((j) => (
+                        <button key={j.id} type="button" className="ps-week-job" onClick={() => onOpenProduction(j.id)}>
+                          <i style={{ background: j.color }} />
+                          <span>{j.name}</span>
+                          <small>{j.line} · {ti === 0 ? displayDate(j.start) : ti === 1 ? displayDate(j.end) : displayDate(j.due)}</small>
+                        </button>
+                      ))}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         </div>
       </section>
     );
@@ -749,6 +817,37 @@ function ModuleWorkspace({
             </select>
           </div>
         </section>
+        {/* Win probability revenue forecast by close month */}
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Revenue Forecast by Close Month</h2>
+            <span>Probability-weighted pipeline revenue · bars sized to max month</span>
+          </div>
+          <div className="ps-pipeline-forecast">
+            {(() => {
+              const monthBuckets = {};
+              pipelineRows.forEach(({ deal, weighted, closeDate }) => {
+                const d = toDate(closeDate);
+                if (isNaN(d)) return;
+                const key = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+                monthBuckets[key] = (monthBuckets[key] || 0) + weighted;
+              });
+              const entries = Object.entries(monthBuckets).sort(([a], [b]) => a.localeCompare(b)).slice(0, 12);
+              const maxVal = Math.max(1, ...entries.map(([, v]) => v));
+              return entries.map(([label, val]) => (
+                <div key={label} className="ps-forecast-bar-row">
+                  <span className="ps-forecast-label">{label}</span>
+                  <div className="ps-forecast-track">
+                    <div className="ps-forecast-fill" style={{ width: `${Math.round((val / maxVal) * 100)}%` }} />
+                  </div>
+                  <span className="ps-forecast-val">{canViewPrices ? formatMoney(val) : "Locked"}</span>
+                </div>
+              ));
+            })()}
+            {pipelineRows.length === 0 && <p className="ps-empty">No pipeline deals with close dates.</p>}
+          </div>
+        </section>
+
         <div className="ps-stage-board">
           {pipelineTotals.map((stage) => (
             <section key={stage.id} className="ps-stage-column">
@@ -757,15 +856,27 @@ function ModuleWorkspace({
                 <span>{stage.count} deals - {formatProtectedMoney(stage.weighted, canViewPrices)}</span>
               </div>
               {pipelineRows.filter((row) => row.stage.id === stage.id).map(({ deal, revenue, weighted, closeDate }) => (
-                <button key={deal.id} type="button" className="ps-deal-card" onClick={() => onOpenProduction(jobs[0]?.id)}>
-                  <strong>{deal.opportunityName}</strong>
-                  <span>{deal.client}</span>
-                  <small>{formatProtectedMoney(revenue, canViewPrices)}</small>
-                  <div>
-                    <b>{canViewPrices ? `${formatMoney(weighted)} weighted` : "Weighted price locked"}</b>
-                    <em>{displayDate(closeDate)}</em>
-                  </div>
-                </button>
+                <div key={deal.id} className="ps-deal-card">
+                  <button type="button" className="ps-deal-card-body" onClick={() => onOpenProduction(jobs[0]?.id)}>
+                    <strong>{deal.opportunityName}</strong>
+                    <span>{deal.client}</span>
+                    <small>{formatProtectedMoney(revenue, canViewPrices)}</small>
+                    <div>
+                      <b>{canViewPrices ? `${formatMoney(weighted)} weighted` : "Weighted price locked"}</b>
+                      <em>{displayDate(closeDate)}</em>
+                    </div>
+                  </button>
+                  {(stage.id === "award" || stage.id === "handoff") && (
+                    <button
+                      type="button"
+                      className="ps-deal-convert-btn"
+                      title="Convert this deal to a production job"
+                      onClick={() => onAddJobFromDeal && onAddJobFromDeal(deal)}
+                    >
+                      + Convert to Job
+                    </button>
+                  )}
+                </div>
               ))}
             </section>
           ))}
@@ -808,6 +919,378 @@ function ModuleWorkspace({
             </table>
           </div>
         </section>
+      </section>
+    );
+  }
+
+  if (module.id === "capacity") {
+    // Build month buckets for the next 12 months
+    const today2 = formatDate(new Date());
+    const capacityMonths = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() + i);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const monthStart = formatDate(new Date(year, month, 1));
+      const monthEnd = formatDate(new Date(year, month + 1, 0));
+      const label = `${MONTHS[month]} ${year}`;
+
+      // Scheduled load: sum days-on-line per line per month
+      const lineLoad = LINES.map((line) => {
+        const lineJobs = jobs.filter((j) => j.line === line.id);
+        const daysInMo = daysInMonth(year, month);
+        let usedDays = 0;
+        for (const j of lineJobs) {
+          const overlapStart = j.start > monthStart ? j.start : monthStart;
+          const overlapEnd = j.offLine < monthEnd ? j.offLine : monthEnd;
+          if (overlapStart <= overlapEnd) {
+            usedDays += dateDiffDays(overlapStart, overlapEnd);
+          }
+        }
+        return { line: line.id, name: line.name, usedDays, capacity: daysInMo, pct: Math.min(100, Math.round((usedDays / daysInMo) * 100)) };
+      });
+
+      // Pipeline demand: weighted module count for deals with close dates in this month
+      const pipelineDemand = pipelineDeals.filter((d2) => {
+        const cd = d2.expectedCloseDate || "";
+        return cd >= monthStart && cd <= monthEnd;
+      }).reduce((sum, d2) => sum + (Number(d2.weightedAmount) || 0), 0);
+
+      // Total modules scheduled
+      const scheduledModules = jobs.filter((j) => j.line !== QUEUE && j.start <= monthEnd && (j.offLine || j.end) >= monthStart)
+        .reduce((sum, j) => sum + j.modules, 0);
+
+      const avgPct = Math.round(lineLoad.reduce((s, l) => s + l.pct, 0) / LINES.length);
+      const tone = avgPct >= 90 ? "red" : avgPct >= 65 ? "amber" : avgPct >= 30 ? "green" : "blue";
+
+      capacityMonths.push({ label, monthStart, monthEnd, lineLoad, pipelineDemand, scheduledModules, avgPct, tone });
+    }
+
+    // Yearly totals
+    const totalScheduledModules = jobs.filter((j) => j.line !== QUEUE).reduce((s, j) => s + j.modules, 0);
+    const totalWeightedPipeline = pipelineDeals.reduce((s, d) => s + (Number(d.weightedAmount) || 0), 0);
+    const avgUtilAll = Math.round(capacityMonths.reduce((s, m) => s + m.avgPct, 0) / capacityMonths.length);
+
+    return (
+      <section className="ps-module-page" aria-label={module.title}>
+        <ModuleHead module={module} eyebrow="12-month forward view" />
+
+        {/* Summary KPI row */}
+        <div className="ps-capacity-kpi-row">
+          <div className="ps-capacity-kpi">
+            <span>Avg Plant Utilization</span>
+            <strong>{avgUtilAll}%</strong>
+            <small>next 12 months</small>
+          </div>
+          <div className="ps-capacity-kpi">
+            <span>Scheduled Modules</span>
+            <strong>{totalScheduledModules}</strong>
+            <small>on production lines</small>
+          </div>
+          <div className="ps-capacity-kpi">
+            <span>Weighted Pipeline</span>
+            <strong>{canViewPrices ? formatMoney(totalWeightedPipeline) : "Locked"}</strong>
+            <small>probability-adjusted</small>
+          </div>
+          <div className="ps-capacity-kpi">
+            <span>Lines</span>
+            <strong>{LINES.length}</strong>
+            <small>production lines tracked</small>
+          </div>
+        </div>
+
+        {/* Month-by-month chart */}
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Monthly Line Load</h2>
+            <span>Bar = % of working days occupied per line · Red = &gt;90% · Amber = 65–90% · Green = 30–65% · Blue = &lt;30%</span>
+          </div>
+          <div className="ps-capacity-chart">
+            {capacityMonths.map((mo) => (
+              <div key={mo.label} className="ps-capacity-month">
+                <div className="ps-capacity-month-label">{mo.label}</div>
+                <div className="ps-capacity-bars">
+                  {mo.lineLoad.map((ll) => (
+                    <div key={ll.line} className="ps-capacity-bar-row">
+                      <span className="ps-capacity-line-label">{ll.line}</span>
+                      <div className="ps-capacity-bar-track">
+                        <div
+                          className={`ps-capacity-bar-fill is-${ll.pct >= 90 ? "red" : ll.pct >= 65 ? "amber" : ll.pct >= 30 ? "green" : "blue"}`}
+                          style={{ width: `${ll.pct}%` }}
+                        />
+                      </div>
+                      <span className="ps-capacity-bar-pct">{ll.pct}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className={`ps-capacity-avg is-${mo.tone}`}>{mo.avgPct}% avg</div>
+                {mo.pipelineDemand > 0 && (
+                  <div className="ps-capacity-pipeline-note">
+                    {canViewPrices ? `+${formatMoney(mo.pipelineDemand)} pipeline closing` : "+pipeline demand"}
+                  </div>
+                )}
+                {mo.scheduledModules > 0 && (
+                  <div className="ps-capacity-modules-note">{mo.scheduledModules} modules on line</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Per-line detail table */}
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Line-by-Line Forecast</h2>
+            <span>Current utilization and upcoming scheduled work per line</span>
+          </div>
+          <div className="ps-project-table">
+            <div className="ps-project-row is-header">
+              <span>Line</span><span>Focus</span><span>Jobs Scheduled</span><span>Modules</span><span>Utilization</span><span>Status</span>
+            </div>
+            {LINES.map((line) => {
+              const util = lineUtilization.find((u) => u.line === line.id);
+              const lineJobs = jobs.filter((j) => j.line === line.id);
+              const tone = (util?.utilization || 0) >= 90 ? "red" : (util?.utilization || 0) >= 65 ? "amber" : "green";
+              return (
+                <div key={line.id} className="ps-project-row">
+                  <span><strong>{line.name}</strong></span>
+                  <span><small>{line.focus}</small></span>
+                  <span><strong>{lineJobs.length}</strong></span>
+                  <span><strong>{util?.modules || 0}</strong></span>
+                  <span>
+                    <div className="ps-capacity-bar-track" style={{ maxWidth: 120 }}>
+                      <div className={`ps-capacity-bar-fill is-${tone}`} style={{ width: `${util?.utilization || 0}%` }} />
+                    </div>
+                    <small style={{ marginLeft: 6 }}>{util?.utilization || 0}%</small>
+                  </span>
+                  <span><i className={`ps-pill is-${tone}`}>{tone === "red" ? "Near full" : tone === "amber" ? "Filling" : "Available"}</i></span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Gap risk warnings */}
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Capacity Warnings</h2>
+            <span>Months where average line load exceeds 80% or drops below 20%</span>
+          </div>
+          <div className="ps-compact-list">
+            {capacityMonths.filter((m) => m.avgPct >= 80 || m.avgPct < 20).length === 0 && (
+              <p className="ps-empty">No capacity warnings in the next 12 months.</p>
+            )}
+            {capacityMonths.filter((m) => m.avgPct >= 80 || m.avgPct < 20).map((m) => (
+              <div key={m.label} className={`ps-alert-row is-${m.avgPct >= 80 ? "red" : "blue"}`}>
+                <span className={`ps-status-dot is-${m.avgPct >= 80 ? "red" : "blue"}`} />
+                <strong>{m.label}</strong>
+                <small>{m.avgPct >= 80 ? `Overload risk — ${m.avgPct}% average utilization` : `Idle risk — only ${m.avgPct}% utilization`}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  if (module.id === "submittals") {
+    const submittableJobs = jobs.filter((j) => j.line !== QUEUE && j.status !== "forecast");
+
+    // Compute aging for submittals sent but not received
+    const todayMs = new Date().getTime();
+    function agingDays(dateStr) {
+      if (!dateStr) return null;
+      const d = toDate(dateStr);
+      if (isNaN(d)) return null;
+      return Math.floor((todayMs - d.getTime()) / MS_PER_DAY);
+    }
+
+    const filteredSubJobs = submittableJobs.filter((j) => {
+      const matchLine = subLineFilter === "all" || j.line === subLineFilter;
+      const matchStatus = subStatusFilter === "all" || j.status === subStatusFilter;
+      const hay = `${j.name} ${j.client} ${j.jobNumber || ""} ${j.master?.inspector || ""} ${j.master?.dsaStatus || ""}`.toLowerCase();
+      const matchSearch = !subSearch.trim() || hay.includes(subSearch.trim().toLowerCase());
+      return matchLine && matchStatus && matchSearch;
+    });
+
+    // Summary counts
+    const pendingSubs = submittableJobs.filter((j) => j.master?.submittalsOut && !j.master?.submittalsReceived).length;
+    const dsaPending = submittableJobs.filter((j) => j.master?.dsaStatus && !j.master?.dsaApproval).length;
+    const noInspector = submittableJobs.filter((j) => !j.master?.inspector).length;
+    const overdueReview = submittableJobs.filter((j) => {
+      const age = agingDays(j.master?.submittalsOut);
+      return age !== null && !j.master?.submittalsReceived && age > 21;
+    }).length;
+
+    return (
+      <section className="ps-module-page" aria-label={module.title}>
+        <ModuleHead module={module} eyebrow="Document control" />
+
+        {/* Summary chips */}
+        <div className="ps-capacity-kpi-row">
+          <div className={`ps-capacity-kpi${pendingSubs > 0 ? " is-warn" : ""}`}>
+            <span>Submittals Pending Return</span>
+            <strong>{pendingSubs}</strong>
+            <small>sent, awaiting receipt</small>
+          </div>
+          <div className={`ps-capacity-kpi${overdueReview > 0 ? " is-warn" : ""}`}>
+            <span>Overdue Reviews</span>
+            <strong>{overdueReview}</strong>
+            <small>&gt;21 days without response</small>
+          </div>
+          <div className={`ps-capacity-kpi${dsaPending > 0 ? " is-warn" : ""}`}>
+            <span>DSA Approvals Pending</span>
+            <strong>{dsaPending}</strong>
+            <small>in DSA review process</small>
+          </div>
+          <div className={`ps-capacity-kpi${noInspector > 0 ? " is-warn" : ""}`}>
+            <span>No Inspector Assigned</span>
+            <strong>{noInspector}</strong>
+            <small>jobs missing inspector</small>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <section className="ps-table-panel">
+          <div className="ps-pipeline-filters">
+            <input
+              className="ps-input"
+              type="search"
+              placeholder="Search job, client, job #, inspector, DSA status..."
+              value={subSearch}
+              onChange={(e) => setSubSearch(e.target.value)}
+            />
+            <select className="ps-input" value={subLineFilter} onChange={(e) => setSubLineFilter(e.target.value)}>
+              <option value="all">All Lines</option>
+              {LINES.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            <select className="ps-input" value={subStatusFilter} onChange={(e) => setSubStatusFilter(e.target.value)}>
+              <option value="all">All Statuses</option>
+              {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        </section>
+
+        {/* Main submittal table */}
+        <section className="ps-table-panel">
+          <div className="ps-section-head">
+            <h2>Submittal & Approval Register</h2>
+            <span>{filteredSubJobs.length} jobs shown</span>
+          </div>
+          <div className="ps-pipeline-table-wrap">
+            <table className="ps-pipeline-table ps-submittal-table">
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Line</th>
+                  <th>Status</th>
+                  <th>Contract</th>
+                  <th>Submittals Out</th>
+                  <th>Submittals Received</th>
+                  <th>Aging</th>
+                  <th>DSA Status</th>
+                  <th>DSA Redlines</th>
+                  <th>DSA Approval</th>
+                  <th>Inspector</th>
+                  <th>Lab</th>
+                  <th>Subcontract</th>
+                  <th>Open Items</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSubJobs.length === 0 && (
+                  <tr><td colSpan={14} style={{ textAlign: "center", padding: "24px", color: "#64748b" }}>No jobs match filters.</td></tr>
+                )}
+                {filteredSubJobs.map((j) => {
+                  const age = agingDays(j.master?.submittalsOut);
+                  const isOverdue = age !== null && !j.master?.submittalsReceived && age > 21;
+                  const hasDsaIssue = j.master?.dsaStatus && !j.master?.dsaApproval;
+                  return (
+                    <tr
+                      key={j.id}
+                      className={isOverdue || hasDsaIssue ? "ps-submittal-row-warn" : ""}
+                      onClick={() => onOpenProduction(j.id)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <td>
+                        <strong>{j.name}</strong>
+                        <small style={{ display: "block", color: "#64748b" }}>{j.client}{j.jobNumber ? ` · #${j.jobNumber}` : ""}</small>
+                      </td>
+                      <td>{j.line}</td>
+                      <td><StatusChip status={j.status} /></td>
+                      <td>{j.master?.contract || <span className="ps-sub-empty">—</span>}</td>
+                      <td>
+                        {j.master?.submittalsOut
+                          ? <span className="ps-sub-sent">{displayDate(j.master.submittalsOut)}</span>
+                          : <span className="ps-sub-empty">Not sent</span>}
+                      </td>
+                      <td>
+                        {j.master?.submittalsReceived
+                          ? <span className="ps-sub-received">{displayDate(j.master.submittalsReceived)}</span>
+                          : j.master?.submittalsOut
+                            ? <span className="ps-sub-pending">Awaiting</span>
+                            : <span className="ps-sub-empty">—</span>}
+                      </td>
+                      <td>
+                        {age !== null && !j.master?.submittalsReceived
+                          ? <span className={`ps-sub-age${isOverdue ? " is-overdue" : ""}`}>{age}d</span>
+                          : <span className="ps-sub-empty">—</span>}
+                      </td>
+                      <td>{j.master?.dsaStatus || <span className="ps-sub-empty">—</span>}</td>
+                      <td>
+                        {j.master?.dsaRedlines
+                          ? <span className="ps-sub-warn">{displayDate(j.master.dsaRedlines)}</span>
+                          : <span className="ps-sub-empty">—</span>}
+                      </td>
+                      <td>
+                        {j.master?.dsaApproval
+                          ? <span className="ps-sub-received">{displayDate(j.master.dsaApproval)}</span>
+                          : j.master?.dsaStatus
+                            ? <span className="ps-sub-pending">Pending</span>
+                            : <span className="ps-sub-empty">—</span>}
+                      </td>
+                      <td>{j.master?.inspector || <span className="ps-sub-empty ps-sub-missing">Unassigned</span>}</td>
+                      <td>{j.master?.lab || <span className="ps-sub-empty">—</span>}</td>
+                      <td>{j.master?.subcontractStatus || <span className="ps-sub-empty">—</span>}</td>
+                      <td>
+                        {j.master?.openItems
+                          ? <span className="ps-sub-warn" title={j.master.openItems}>⚠ {j.master.openItems.slice(0, 30)}{j.master.openItems.length > 30 ? "…" : ""}</span>
+                          : <span className="ps-sub-empty">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Overdue / attention required list */}
+        {overdueReview > 0 && (
+          <section className="ps-table-panel">
+            <div className="ps-section-head">
+              <h2>Overdue Submittals (21+ days)</h2>
+              <span>Sent but no response received</span>
+            </div>
+            <div className="ps-compact-list">
+              {submittableJobs.filter((j) => {
+                const age = agingDays(j.master?.submittalsOut);
+                return age !== null && !j.master?.submittalsReceived && age > 21;
+              }).map((j) => {
+                const age = agingDays(j.master?.submittalsOut);
+                return (
+                  <button key={j.id} type="button" onClick={() => onOpenProduction(j.id)}>
+                    <span className="ps-status-dot is-red" />
+                    <strong>{j.name}</strong>
+                    <small>{j.client} · Sent {displayDate(j.master.submittalsOut)} · {age} days ago · No response</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </section>
     );
   }
@@ -1625,6 +2108,34 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     setJobs((c) => c.filter((j) => j.id !== selectedJob.id));
     setSelectedId(null);
     showToast("Job deleted");
+  }
+
+  function addJobFromDeal(deal) {
+    const closeDate = deal.expectedCloseDate || addDays(today, 60);
+    const startDate = addDays(closeDate, 14);
+    const job = normalizeJob(
+      {
+        id: String(nextId++),
+        name: deal.opportunityName || "New School Project",
+        client: deal.client || "School District",
+        line: "L1",
+        start: startDate,
+        offLine: addDays(startDate, 30),
+        end: addDays(startDate, 45),
+        due: addDays(startDate, 60),
+        color: JOB_COLORS[nextId % JOB_COLORS.length],
+        status: "approved",
+        modules: deal.modules || 12,
+        crew: 10,
+        priority: "High",
+        notes: `Converted from pipeline deal. ${deal.notes || ""}`.trim(),
+      },
+      nextId,
+    );
+    setJobs((c) => [...c, job]);
+    setSelectedId(job.id);
+    setActiveModule("production");
+    showToast(`Job created from "${deal.opportunityName || "deal"}"`);
   }
 
   function scrollToToday() {
@@ -2553,6 +3064,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
             setLineFilter("all");
             setActiveModule("production");
           }}
+          onAddJobFromDeal={addJobFromDeal}
         />
       )}
 

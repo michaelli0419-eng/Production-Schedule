@@ -72,6 +72,16 @@ function jobNum(val) {
   return s === "" || s === "None" ? null : s;
 }
 
+/** Only keep PM values that look like a person's name, not a number */
+function cleanPm(val) {
+  if (!val) return null;
+  // Reject if it's purely numeric (dollar amounts leaking from adjacent column)
+  if (/^[\d.,\s$]+$/.test(val)) return null;
+  // Reject known non-name values
+  if (/^(tbd|n\/a|none|need pm)$/i.test(val.trim())) return null;
+  return val;
+}
+
 function mapLine(val) {
   if (!val) return null;
   const s = String(val).trim();
@@ -334,6 +344,8 @@ async function main() {
       master_subcontract_status:  str(r["Factory Sub Status"])         || str(ap["Factory Sub Status"]),
       master_open_items:          str(r["Open Items"])                 || str(ap["Open Items"]),
       master_pm_update:           str(r["PM Update"])                  || str(ap["PM Update"]),
+
+      pm:           cleanPm(str(r["PM"]) || str(ap["PM"])),
 
       source_type:  "excel_import",
       source_sheet: "Master Jobs",

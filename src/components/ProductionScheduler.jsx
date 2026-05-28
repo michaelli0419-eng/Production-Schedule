@@ -328,6 +328,7 @@ function normalizeJob(job, index) {
       inspections: Boolean(job.readiness?.inspections),
     },
     notes: job.notes || "",
+    pm: job.pm || "",
     sourceType: job.sourceType || "",
     sourceSheet: job.sourceSheet || "",
     sourceRow: job.sourceRow || "",
@@ -504,6 +505,7 @@ function ModuleWorkspace({
   lineUtilization,
   excelSync,
   onOpenProduction,
+  onFilterByPm,
   onAddJobFromDeal,
   canViewPrices,
   userAdmin,
@@ -618,6 +620,25 @@ function ModuleWorkspace({
     const avgReadiness = Math.round(jobs.reduce((s, j) => s + readinessScore(j), 0) / Math.max(1, jobs.length));
     const pendingSubmittals = jobs.filter((j) => j.master?.submittalsOut && !j.master?.submittalsReceived).length;
     const totalPipelineWeighted = pipelineDeals.reduce((s, d) => s + (Number(d.weightedAmount) || 0), 0);
+
+    // PM workload: split "Joe/Rod" → each PM gets their own row
+    const pmWorkload = (() => {
+      const map = new Map();
+      const today30 = addDays(today, 30);
+      jobs.forEach((j) => {
+        if (!j.pm) return;
+        j.pm.split(/[/,&]+/).map((s) => s.trim()).filter(Boolean).forEach((name) => {
+          if (!map.has(name)) map.set(name, { name, total: 0, inProd: 0, openItems: 0, shippingSoon: 0, lateJobs: 0 });
+          const row = map.get(name);
+          row.total++;
+          if (j.status === "production") row.inProd++;
+          if (j.master?.openItems) row.openItems++;
+          if (j.end && j.end >= today && j.end <= today30) row.shippingSoon++;
+          if (j.end && j.end < today && j.status !== "complete") row.lateJobs++;
+        });
+      });
+      return [...map.values()].sort((a, b) => b.inProd - a.inProd || b.total - a.total);
+    })();
 
     return (
       <section className="ps-dash" aria-label="Company Dashboard">
@@ -895,6 +916,60 @@ function ModuleWorkspace({
             </section>
           </div>
         </div>
+
+        {/* PM Workload Table */}
+        {pmWorkload.length > 0 && (
+          <div className="ps-dash-pm-section">
+            <div className="ps-dash-panel-head" style={{ marginBottom: 16 }}>
+              <h2>PM Workload</h2>
+              <span>Active jobs, open items &amp; upcoming ships per Project Manager</span>
+            </div>
+            <div className="ps-dash-pm-grid">
+              <div className="ps-dash-pm-row ps-dash-pm-header">
+                <span>PM</span>
+                <span>Total Jobs</span>
+                <span>In Production</span>
+                <span>Ships ≤ 30 days</span>
+                <span>Open Items</span>
+                <span>Late</span>
+                <span></span>
+              </div>
+              {pmWorkload.map((row) => (
+                <div key={row.name} className="ps-dash-pm-row">
+                  <span className="ps-dash-pm-name">{row.name}</span>
+                  <span>{row.total}</span>
+                  <span>
+                    <span className={`ps-pm-badge${row.inProd > 0 ? " is-prod" : ""}`}>{row.inProd}</span>
+                  </span>
+                  <span>
+                    {row.shippingSoon > 0
+                      ? <span className="ps-pm-badge is-ship">{row.shippingSoon}</span>
+                      : <span className="ps-pm-zero">—</span>}
+                  </span>
+                  <span>
+                    {row.openItems > 0
+                      ? <span className="ps-pm-badge is-warn">{row.openItems}</span>
+                      : <span className="ps-pm-zero">—</span>}
+                  </span>
+                  <span>
+                    {row.lateJobs > 0
+                      ? <span className="ps-pm-badge is-late">{row.lateJobs}</span>
+                      : <span className="ps-pm-zero">—</span>}
+                  </span>
+                  <span>
+                    <button
+                      type="button"
+                      className="ps-pm-filter-btn"
+                      onClick={() => onFilterByPm(row.name)}
+                    >
+                      View jobs →
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     );
   }
@@ -1800,6 +1875,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [lineFilter, setLineFilter] = useState("all");
+  const [pmFilter, setPmFilter] = useState("all");
   const [summaryList, setSummaryList] = useState(null);
   const [activeModule, setActiveModule] = useState("production");
   const [scheduleView, setScheduleView] = useState("production");
@@ -1866,15 +1942,25 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     gridRef.current.scrollLeft = Math.max(0, todayPx - containerW / 2 + 100);
   }, [activeModule, dayPx, timelineRange.start, today]);
 
+  // All unique PM names, split from "Joe/Rod" style entries
+  const allPMs = useMemo(() => {
+    const names = new Set();
+    workingJobs.forEach((j) => {
+      if (j.pm) j.pm.split(/[/,&]+/).map((s) => s.trim()).filter(Boolean).forEach((n) => names.add(n));
+    });
+    return [...names].sort();
+  }, [workingJobs]);
+
   const visibleJobs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return workingJobs.filter((job) => {
-      const matchesText = !term || `${job.name} ${job.client} ${job.notes}`.toLowerCase().includes(term);
+      const matchesText = !term || `${job.name} ${job.client} ${job.notes} ${job.pm || ""}`.toLowerCase().includes(term);
       const matchesStatus = statusFilter === "all" || job.status === statusFilter;
       const matchesLine = lineFilter === "all" || job.line === lineFilter;
-      return matchesText && matchesStatus && matchesLine;
+      const matchesPm = pmFilter === "all" || (job.pm || "").toLowerCase().includes(pmFilter.toLowerCase());
+      return matchesText && matchesStatus && matchesLine && matchesPm;
     });
-  }, [lineFilter, search, statusFilter, workingJobs]);
+  }, [lineFilter, pmFilter, search, statusFilter, workingJobs]);
 
   const scheduledJobs = visibleJobs.filter((job) => LINE_IDS.includes(job.line));
   const queuedJobs = visibleJobs.filter((job) => job.line === QUEUE);
@@ -2724,6 +2810,10 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           {LINES.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           <option value={QUEUE}>Queue</option>
         </select>
+        <select value={pmFilter} onChange={(e) => setPmFilter(e.target.value)} title="Filter by Project Manager">
+          <option value="all">All PMs</option>
+          {allPMs.map((pm) => <option key={pm} value={pm}>{pm}</option>)}
+        </select>
         <div className="ps-schedule-tabs" role="group" aria-label="Schedule view">
           {SCHEDULE_VIEWS.map((view) => (
             <button
@@ -2924,7 +3014,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                       </>
                     )}
                     <span>{`${job.jobNumber || "No job #"} · ${job.client || "No client"}`}</span>
-                    <small>{job.name}</small>
+                    <small>{job.name}{job.pm ? <> · <em className="ps-job-pm">{job.pm}</em></> : null}</small>
                     <b style={{ width: `${job.progress}%` }} />
                     {dragging?.jobId === job.id && (
                       <div className="ps-drag-impact">
@@ -3061,6 +3151,15 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                     <option>High</option>
                     <option>Critical</option>
                   </select>
+                </label>
+                <label>
+                  Project Manager
+                  <input
+                    type="text"
+                    value={selectedJob.pm || ""}
+                    placeholder="e.g. Joe/Rod"
+                    onChange={(e) => updateJob(selectedJob.id, { pm: e.target.value })}
+                  />
                 </label>
 
                 {/* Master Excel fields (only when sourced from Excel) */}
@@ -3262,6 +3361,12 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           }}
           onOpenProduction={(jobId) => {
             setSelectedId(jobId);
+            setStatusFilter("all");
+            setLineFilter("all");
+            setActiveModule("production");
+          }}
+          onFilterByPm={(pm) => {
+            setPmFilter(pm);
             setStatusFilter("all");
             setLineFilter("all");
             setActiveModule("production");

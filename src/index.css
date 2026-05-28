@@ -2781,3 +2781,50 @@ body {
 .ps-dash-funnel-bar-fill { height: 100%; background: linear-gradient(90deg, #F97316, #FB923C); border-radius: 4px; }
 .ps-dash-funnel-count { width: 48px; text-align: right; color: #64748b; font-weight: 600; flex-shrink: 0; }
 .ps-dash-funnel-val   { width: 80px; text-align: right; color: #0f172a; font-weight: 700; flex-shrink: 0; }
+
+/* ── PM Workload Table ───────────────────────────────────────────────────── */
+.ps-dash-pm-section { padding: 24px 28px 32px; border-top: 1px solid #e2e8f0; }
+.ps-dash-pm-grid { display: flex; flex-direction: column; gap: 0; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.ps-dash-pm-row {
+  display: grid;
+  grid-template-columns: 140px 90px 110px 120px 100px 60px 1fr;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.875rem;
+  gap: 4px;
+}
+.ps-dash-pm-row:last-child { border-bottom: none; }
+.ps-dash-pm-row:nth-child(even) { background: #f8fafc; }
+.ps-dash-pm-header {
+  background: #0f172a !important;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: none;
+}
+.ps-dash-pm-header > span { color: #94a3b8; }
+.ps-dash-pm-name { font-weight: 700; color: #0f172a; }
+.ps-pm-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; height: 22px; border-radius: 6px;
+  font-size: 0.8rem; font-weight: 700; padding: 0 6px;
+  background: #e2e8f0; color: #475569;
+}
+.ps-pm-badge.is-prod { background: #fff7ed; color: #ea580c; }
+.ps-pm-badge.is-ship { background: #f0fdf4; color: #16a34a; }
+.ps-pm-badge.is-warn { background: #fef3c7; color: #b45309; }
+.ps-pm-badge.is-late { background: #fef2f2; color: #dc2626; }
+.ps-pm-zero { color: #cbd5e1; }
+.ps-pm-filter-btn {
+  background: none; border: 1px solid #e2e8f0; border-radius: 6px;
+  padding: 4px 10px; font-size: 0.8rem; color: #F97316; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ps-pm-filter-btn:hover { background: #fff7ed; border-color: #F97316; }
+
+/* PM chip on job bar */
+.ps-job-pm { font-style: normal; color: rgba(255,255,255,0.75); font-size: 0.72em; }

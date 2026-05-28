@@ -49,6 +49,7 @@ export function dbRowToJob(row) {
     clientId:     row.client_id     ?? null,
     sourceDealId: row.source_deal_id ?? null,
     offLineDate:  row.off_line_date  ?? null,
+    pm:           row.pm            ?? "",
     master: {
       contract:            row.master_contract             ?? "",
       submittalsOut:       row.master_submittals_out       ?? "",
@@ -97,6 +98,7 @@ export function jobToDbRow(job) {
     client_id:       job.clientId     || null,
     source_deal_id:  job.sourceDealId || null,
     off_line_date:   job.offLineDate  || null,
+    pm:              job.pm           || null,
 
     master_contract:             job.master?.contract            || null,
     master_submittals_out:       job.master?.submittalsOut       || null,

@@ -60,6 +60,62 @@ function getExcelPath() {
   return null;
 }
 
+function tempExcelPath(excelPath) {
+  const parsed = path.parse(excelPath);
+  return path.join(parsed.dir, `${parsed.name}.saving-${Date.now()}${parsed.ext}`);
+}
+
+function backupExcelPath(excelPath) {
+  const parsed = path.parse(excelPath);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return path.join(parsed.dir, `${parsed.name}.backup-${stamp}${parsed.ext}`);
+}
+
+function sanitizeExcelText(value, maxLength = 32000) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .slice(0, maxLength);
+}
+
+function parseIsoDate(value) {
+  if (!value || typeof value !== "string") return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function setTextCell(row, col, value, maxLength) {
+  row.getCell(col).value = sanitizeExcelText(value, maxLength);
+}
+
+function setDateCell(row, col, value) {
+  const date = parseIsoDate(value);
+  if (date) row.getCell(col).value = date;
+}
+
+async function writeWorkbookSafely(workbook, excelPath) {
+  const tempPath = tempExcelPath(excelPath);
+  const backupPath = backupExcelPath(excelPath);
+
+  try {
+    await workbook.xlsx.writeFile(tempPath);
+
+    const validationWorkbook = new ExcelJS.Workbook();
+    await validationWorkbook.xlsx.readFile(tempPath);
+
+    fs.copyFileSync(excelPath, backupPath);
+    fs.copyFileSync(tempPath, excelPath);
+    fs.unlinkSync(tempPath);
+    return backupPath;
+  } catch (err) {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    throw err;
+  }
+}
+
 /**
  * Parse an Excel cell value into an ISO date string (YYYY-MM-DD).
  * Returns null when the value is missing or a non-date text string.
@@ -333,32 +389,33 @@ app.post("/api/jobs", async (req, res) => {
       const row = ws.getRow(job.sourceRow);
 
       // ── Dates (write as JS Date so exceljs serialises as Excel date) ──
-      if (job.start) row.getCell(COL.topsetDate).value    = new Date(job.start);
-      if (job.end)   row.getCell(COL.shippingDate).value  = new Date(job.end);
-      if (job.due)   row.getCell(COL.setDate).value       = new Date(job.due);
+      setDateCell(row, COL.topsetDate, job.start);
+      setDateCell(row, COL.shippingDate, job.end);
+      setDateCell(row, COL.setDate, job.due);
 
       // ── Master text fields ────────────────────────────────────────────
       const m = job.master ?? {};
-      if (m.contract            !== undefined) row.getCell(COL.contract).value           = m.contract;
-      if (m.submittalsOut       !== undefined) row.getCell(COL.submittalsOut).value      = m.submittalsOut;
-      if (m.submittalsReceived  !== undefined) row.getCell(COL.submittalsReceived).value = m.submittalsReceived;
-      if (m.dsaStatus           !== undefined) row.getCell(COL.dsaStatus).value          = m.dsaStatus;
-      if (m.dsaRedlines         !== undefined) row.getCell(COL.dsaRedlines).value        = m.dsaRedlines;
-      if (m.dsaApproval         !== undefined) row.getCell(COL.dsaApproval).value        = m.dsaApproval;
-      if (m.inspector           !== undefined) row.getCell(COL.inspector).value          = m.inspector;
-      if (m.jobCard             !== undefined) row.getCell(COL.jobCard).value            = m.jobCard;
-      if (m.lab                 !== undefined) row.getCell(COL.lab).value                = m.lab;
-      if (m.subcontractStatus   !== undefined) row.getCell(COL.subcontractStatus).value  = m.subcontractStatus;
-      if (m.openItems           !== undefined) row.getCell(COL.openItems).value          = m.openItems;
-      if (m.pmUpdate            !== undefined) row.getCell(COL.pmUpdate).value           = m.pmUpdate;
+      if (m.contract            !== undefined) setTextCell(row, COL.contract, m.contract, 800);
+      if (m.submittalsOut       !== undefined) setTextCell(row, COL.submittalsOut, m.submittalsOut, 800);
+      if (m.submittalsReceived  !== undefined) setTextCell(row, COL.submittalsReceived, m.submittalsReceived, 800);
+      if (m.dsaStatus           !== undefined) setTextCell(row, COL.dsaStatus, m.dsaStatus, 800);
+      if (m.dsaRedlines         !== undefined) setTextCell(row, COL.dsaRedlines, m.dsaRedlines, 800);
+      if (m.dsaApproval         !== undefined) setTextCell(row, COL.dsaApproval, m.dsaApproval, 200);
+      if (m.inspector           !== undefined) setTextCell(row, COL.inspector, m.inspector, 200);
+      if (m.jobCard             !== undefined) setTextCell(row, COL.jobCard, m.jobCard, 200);
+      if (m.lab                 !== undefined) setTextCell(row, COL.lab, m.lab, 200);
+      if (m.subcontractStatus   !== undefined) setTextCell(row, COL.subcontractStatus, m.subcontractStatus, 1200);
+      if (m.openItems           !== undefined) setTextCell(row, COL.openItems, m.openItems, 3000);
+      if (m.pmUpdate            !== undefined) setTextCell(row, COL.pmUpdate, m.pmUpdate, 2000);
 
       row.commit();
       saved += 1;
     }
 
-    await workbook.xlsx.writeFile(excelPath);
+    const backupPath = await writeWorkbookSafely(workbook, excelPath);
     console.log(`[POST /api/jobs] Saved ${saved} rows to ${path.basename(excelPath)}`);
-    res.json({ saved, syncedAt: new Date().toISOString() });
+    console.log(`[POST /api/jobs] Backup created at ${backupPath}`);
+    res.json({ saved, backupPath, syncedAt: new Date().toISOString() });
 
   } catch (err) {
     console.error("[POST /api/jobs] Error:", err.message);

@@ -21,7 +21,7 @@ const NAV_ITEMS = [
   { id: "capacity", label: "Capacity Planner", title: "Capacity Planner", description: "Forward-looking line load vs. capacity by month, with pipeline probability weighting for demand forecasting." },
   { id: "submittals", label: "Submittals", title: "Submittal & Approval Tracker", description: "Track all pending submittals, DSA approvals, inspector assignments, and aging documents across active jobs." },
   { id: "pipeline", label: "Sales Pipeline", title: "Sales Pipeline", description: "Track opportunities from lead through award before they become scheduled production jobs." },
-  { id: "projects", label: "Projects", title: "Projects", description: "One shared project record connecting sales, production, shipping, site set, NetSuite, and Procore context." },
+  { id: "projects", label: "Active Production", title: "Active Production", description: "Daily standup view — inline-editable status, dates, DSA, submittals, open items, and PM updates for every active job." },
   { id: "reports", label: "Reports", title: "Reports", description: "Reusable operating reports for leadership, sales, production, and project teams." },
   { id: "settings", label: "Settings", title: "Settings", description: "Configure lines, statuses, users, integrations, and field mappings." },
 ];
@@ -1548,31 +1548,268 @@ function ModuleWorkspace({
   }
 
   if (module.id === "projects") {
+    // Inline edit state — track which cell is being edited
+    const [editingCell, setEditingCell] = React.useState(null); // { jobId, field }
+    const [apSearch, setApSearch] = React.useState("");
+    const [apLineFilter, setApLineFilter] = React.useState("all");
+    const [apStatusFilter, setApStatusFilter] = React.useState("all");
+    const [selectedRows, setSelectedRows] = React.useState(new Set());
+    const [batchShiftDays, setBatchShiftDays] = React.useState("");
+    const [showBatchShift, setShowBatchShift] = React.useState(false);
+
+    const activeJobs = jobs.filter((j) => j.status !== "complete" && j.status !== "forecast");
+
+    const filteredActiveJobs = activeJobs.filter((j) => {
+      const matchLine = apLineFilter === "all" || j.line === apLineFilter;
+      const matchStatus = apStatusFilter === "all" || j.status === apStatusFilter;
+      const hay = `${j.name} ${j.client} ${j.jobNumber || ""} ${j.pm || ""}`.toLowerCase();
+      const matchSearch = !apSearch.trim() || hay.includes(apSearch.trim().toLowerCase());
+      return matchLine && matchStatus && matchSearch;
+    });
+
+    function startEdit(jobId, field) {
+      setEditingCell({ jobId, field });
+    }
+
+    function commitEdit(jobId, field, value) {
+      if (field.startsWith("master.")) {
+        updateMasterField(jobId, field.replace("master.", ""), value);
+      } else {
+        updateJob(jobId, { [field]: value });
+      }
+      setEditingCell(null);
+    }
+
+    function toggleRow(id) {
+      setSelectedRows((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+      });
+    }
+
+    function toggleAll() {
+      setSelectedRows((prev) =>
+        prev.size === filteredActiveJobs.length ? new Set() : new Set(filteredActiveJobs.map((j) => j.id))
+      );
+    }
+
+    function applyBatchShift() {
+      const days = parseInt(batchShiftDays, 10);
+      if (!days || !selectedRows.size) return;
+      selectedRows.forEach((id) => {
+        const job = jobs.find((j) => j.id === id);
+        if (!job) return;
+        updateJob(id, {
+          start: addDays(job.start, days),
+          offLine: addDays(job.offLine, days),
+          end: addDays(job.end, days),
+          due: addDays(job.due, days),
+        });
+      });
+      setSelectedRows(new Set());
+      setBatchShiftDays("");
+      setShowBatchShift(false);
+    }
+
+    function EditableCell({ job, field, type = "text", options, placeholder }) {
+      const isEditing = editingCell?.jobId === job.id && editingCell?.field === field;
+      const rawValue = field.startsWith("master.")
+        ? job.master?.[field.replace("master.", "")] ?? ""
+        : job[field] ?? "";
+
+      if (!isEditing) {
+        return (
+          <div
+            className="ps-ap-cell"
+            onClick={() => startEdit(job.id, field)}
+            title="Click to edit"
+          >
+            {rawValue
+              ? (type === "date" ? displayDate(rawValue) : rawValue)
+              : <span className="ps-ap-empty">{placeholder || "—"}</span>}
+          </div>
+        );
+      }
+
+      if (options) {
+        return (
+          <select
+            className="ps-ap-input"
+            autoFocus
+            value={rawValue}
+            onChange={(e) => commitEdit(job.id, field, e.target.value)}
+            onBlur={() => setEditingCell(null)}
+          >
+            {options.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
+          </select>
+        );
+      }
+      return (
+        <input
+          className="ps-ap-input"
+          autoFocus
+          type={type === "date" ? "date" : "text"}
+          value={rawValue}
+          onChange={(e) => {
+            if (field.startsWith("master.")) {
+              updateMasterField(job.id, field.replace("master.", ""), e.target.value);
+            } else {
+              updateJob(job.id, { [field]: e.target.value });
+            }
+          }}
+          onBlur={() => setEditingCell(null)}
+          onKeyDown={(e) => { if (e.key === "Enter") commitEdit(job.id, field, e.target.value); if (e.key === "Escape") setEditingCell(null); }}
+          placeholder={placeholder}
+        />
+      );
+    }
+
+    const statusOptions = Object.entries(STATUS_CONFIG).map(([value, v]) => ({ value, label: v.label }));
+
     return (
       <section className="ps-module-page" aria-label={module.title}>
-        <ModuleHead module={module} eyebrow="Single project record" />
+        <ModuleHead module={module} eyebrow="Daily standup · click any cell to edit" />
+
+        {/* Filters + batch actions */}
         <section className="ps-table-panel">
-          <div className="ps-section-head">
-            <h2>Project Registry</h2>
-            <span>Shared record across sales, plant, accounting, and field teams</span>
+          <div className="ps-pipeline-filters">
+            <input
+              className="ps-input"
+              type="search"
+              placeholder="Search job, client, PM, job #…"
+              value={apSearch}
+              onChange={(e) => setApSearch(e.target.value)}
+            />
+            <select className="ps-input" value={apStatusFilter} onChange={(e) => setApStatusFilter(e.target.value)}>
+              <option value="all">All Statuses</option>
+              {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+            <select className="ps-input" value={apLineFilter} onChange={(e) => setApLineFilter(e.target.value)}>
+              <option value="all">All Lines</option>
+              {LINES.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            {selectedRows.size > 0 && (
+              <button
+                type="button"
+                className="ps-input"
+                style={{ background: "#fff7ed", color: "#ea580c", border: "1px solid #fed7aa", fontWeight: 600, cursor: "pointer" }}
+                onClick={() => setShowBatchShift((v) => !v)}
+              >
+                {selectedRows.size} selected · Shift dates
+              </button>
+            )}
           </div>
-          <div className="ps-project-table">
-            <div className="ps-project-row is-header">
-              <span>Project</span><span>IDs</span><span>Phase</span><span>Dates</span><span>Bridge</span>
+          {showBatchShift && selectedRows.size > 0 && (
+            <div className="ps-batch-shift">
+              <span>Shift all {selectedRows.size} selected jobs by</span>
+              <input
+                type="number"
+                className="ps-input"
+                style={{ width: 80 }}
+                value={batchShiftDays}
+                onChange={(e) => setBatchShiftDays(e.target.value)}
+                placeholder="days"
+              />
+              <span>days (negative = earlier)</span>
+              <button type="button" className="ps-login-submit" style={{ padding: "6px 16px", fontSize: "0.875rem" }} onClick={applyBatchShift}>
+                Apply
+              </button>
+              <button type="button" onClick={() => setShowBatchShift(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }}>Cancel</button>
             </div>
-            {jobs.map((job) => {
-              const status = integrationStatus(job);
-              return (
-                <button key={job.id} type="button" className="ps-project-row" onClick={() => onOpenProduction(job.id)}>
-                  <span><strong>{job.name}</strong><small>{job.client}</small></span>
-                  <span><strong>{job.jobNumber || "No job #"}</strong><small>{job.sourceType === "master" ? "Master Excel" : "Website"}</small></span>
-                  <span><StatusChip status={job.status} /></span>
-                  <span><strong>{displayDate(job.start)}</strong><small>ship {displayDate(job.end)}</small></span>
-                  <span><i className={`ps-pill is-${status.tone}`}>{status.label}</i></span>
-                </button>
-              );
-            })}
+          )}
+        </section>
+
+        {/* Main inline-edit table */}
+        <section className="ps-table-panel" style={{ overflowX: "auto" }}>
+          <div className="ps-section-head">
+            <h2>Active Production</h2>
+            <span>{filteredActiveJobs.length} jobs · click any cell to edit · Enter or blur to save</span>
           </div>
+          <table className="ps-ap-table">
+            <thead>
+              <tr>
+                <th style={{ width: 32 }}>
+                  <input type="checkbox" checked={selectedRows.size === filteredActiveJobs.length && filteredActiveJobs.length > 0} onChange={toggleAll} />
+                </th>
+                <th>Job</th>
+                <th>PM</th>
+                <th>Line</th>
+                <th>Status</th>
+                <th>Ship Date</th>
+                <th>Set Date</th>
+                <th>DSA Status</th>
+                <th>Subs Out</th>
+                <th>Subs Received</th>
+                <th>Inspector</th>
+                <th>Contract</th>
+                <th style={{ minWidth: 220 }}>Open Items</th>
+                <th style={{ minWidth: 220 }}>PM Update</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredActiveJobs.length === 0 && (
+                <tr><td colSpan={14} style={{ textAlign: "center", padding: 24, color: "#94a3b8" }}>No active jobs match filters.</td></tr>
+              )}
+              {filteredActiveJobs.map((job) => {
+                const isSelected = selectedRows.has(job.id);
+                const hasOpenItems = Boolean(job.master?.openItems);
+                const isLate = job.end && job.end < today;
+                return (
+                  <tr
+                    key={job.id}
+                    className={`ps-ap-row${isSelected ? " is-selected" : ""}${isLate ? " is-late" : ""}${hasOpenItems ? " has-items" : ""}`}
+                  >
+                    <td>
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleRow(job.id)} />
+                    </td>
+                    <td className="ps-ap-job-cell">
+                      <strong>{job.name}</strong>
+                      <small>{job.client}{job.jobNumber ? ` · #${job.jobNumber}` : ""}</small>
+                    </td>
+                    <td><EditableCell job={job} field="pm" placeholder="Assign PM" /></td>
+                    <td>
+                      <EditableCell
+                        job={job}
+                        field="line"
+                        options={[
+                          { value: "L1", label: "Line 1" },
+                          { value: "L2", label: "Line 2" },
+                          { value: "L3", label: "Line 3" },
+                          { value: "L4", label: "Line 4" },
+                          { value: "QUEUE", label: "Queue" },
+                        ]}
+                      />
+                    </td>
+                    <td>
+                      <EditableCell job={job} field="status" options={statusOptions} />
+                    </td>
+                    <td><EditableCell job={job} field="end" type="date" placeholder="Ship date" /></td>
+                    <td><EditableCell job={job} field="due" type="date" placeholder="Set date" /></td>
+                    <td><EditableCell job={job} field="master.dsaStatus" placeholder="DSA status" /></td>
+                    <td><EditableCell job={job} field="master.submittalsOut" type="date" placeholder="Sent" /></td>
+                    <td><EditableCell job={job} field="master.submittalsReceived" type="date" placeholder="Received" /></td>
+                    <td><EditableCell job={job} field="master.inspector" placeholder="Inspector" /></td>
+                    <td><EditableCell job={job} field="master.contract" placeholder="Contract status" /></td>
+                    <td>
+                      <EditableCell
+                        job={job}
+                        field="master.openItems"
+                        placeholder="No open items"
+                      />
+                    </td>
+                    <td>
+                      <EditableCell
+                        job={job}
+                        field="master.pmUpdate"
+                        placeholder="Add update…"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </section>
       </section>
     );

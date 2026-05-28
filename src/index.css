@@ -2828,3 +2828,85 @@ body {
 
 /* PM chip on job bar */
 .ps-job-pm { font-style: normal; color: rgba(255,255,255,0.75); font-size: 0.72em; }
+
+/* ── Active Production inline-edit table ───────────────────────────────── */
+.ps-ap-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.ps-ap-table thead th {
+  background: #0f172a;
+  color: #94a3b8;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.ps-ap-row {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.1s;
+}
+.ps-ap-row:hover { background: #f8fafc; }
+.ps-ap-row.is-selected { background: #fff7ed; }
+.ps-ap-row.is-late td:first-child { border-left: 3px solid #ef4444; }
+.ps-ap-row.has-items td:first-child { border-left: 3px solid #f59e0b; }
+.ps-ap-row.is-selected.is-late td:first-child,
+.ps-ap-row.is-selected.has-items td:first-child { border-left: 3px solid #F97316; }
+.ps-ap-table td {
+  padding: 0;
+  vertical-align: middle;
+  max-width: 260px;
+}
+.ps-ap-job-cell {
+  padding: 8px 10px;
+  min-width: 180px;
+}
+.ps-ap-job-cell strong { display: block; color: #0f172a; font-weight: 600; }
+.ps-ap-job-cell small  { display: block; color: #64748b; font-size: 0.75em; margin-top: 2px; }
+.ps-ap-cell {
+  padding: 7px 10px;
+  cursor: pointer;
+  min-height: 36px;
+  border-radius: 4px;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+  display: block;
+  transition: background 0.12s;
+}
+.ps-ap-cell:hover { background: #e0f2fe; color: #0369a1; }
+.ps-ap-empty { color: #cbd5e1; font-style: italic; }
+.ps-ap-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 2px solid #F97316;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  background: #fff;
+  outline: none;
+  color: #0f172a;
+  box-sizing: border-box;
+}
+select.ps-ap-input { cursor: pointer; }
+
+/* Batch shift bar */
+.ps-batch-shift {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #fff7ed;
+  border-top: 1px solid #fed7aa;
+  font-size: 0.875rem;
+  color: #92400e;
+  flex-wrap: wrap;
+}

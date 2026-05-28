@@ -387,6 +387,13 @@ function normalizeHeader(value) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
 }
 
+function getField(row, keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== "") return row[key];
+  }
+  return "";
+}
+
 function parseNumber(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const text = String(value ?? "").trim();
@@ -411,34 +418,35 @@ function inferStageFromProbability(probability) {
   return "lead";
 }
 
-function mapPipelineRowToDeal(row, index, sheetName) {
-  const probability = Number(row.probability || row.win_probability || confidenceToProbability(row.confidence_level)) || 15;
-  const stage = String(row.stage || row.pipeline_stage || row.status || inferStageFromProbability(probability)).toLowerCase();
-  const amount = parseNumber(row.amount || row.value || row.contract_value || row.contract__value || 0);
+function mapPipelineRowToDeal(row, index, sheetName, sourceRow) {
+  const confidenceValue = getField(row, ["confidence_level", "confidence", "confidence_level_"]);
+  const probability = Number(getField(row, ["probability", "win_probability"]) || confidenceToProbability(confidenceValue)) || 15;
+  const stage = String(getField(row, ["stage", "pipeline_stage", "status"]) || inferStageFromProbability(probability)).toLowerCase();
+  const amount = parseNumber(getField(row, ["amount", "value", "contract_value", "contract__value"]));
   const weightedAmount = Number(row.weighted_amount || row.weighted || Math.round(amount * (probability / 100))) || 0;
-  const statusNotes = String(row.current_status_notes || row.current_status_notes_ || row.notes || row.comments || "");
+  const statusNotes = String(getField(row, ["current_status_notes", "current_status_notes_", "status_notes", "notes", "comments"]));
   return {
     id: String(row.id || row.opportunity_id || row.deal_id || `sales-${index + 2}`),
-    opportunityName: String(row.opportunity_name || row.opportunity || row.project_name || row.project || row.name || "Opportunity"),
-    client: String(row.client || row.customer || row.district || ""),
+    opportunityName: String(getField(row, ["opportunity_name", "opportunity", "project_name", "project", "name"]) || "Opportunity"),
+    client: String(getField(row, ["client", "customer", "customer_name", "district"])),
     stage,
     probability,
     amount,
     weightedAmount,
     expectedCloseDate: parseScheduleDate(
-      row.expected_close_date || row.close_date || row.target_close || row.district_occupancy_date || row.start_date_for_production || "",
+      getField(row, ["expected_close_date", "close_date", "target_close", "district_occupancy_date", "start_date_for_production"]),
     ) || "",
-    estimator: String(row.bdm || row.estimator || row.estimating || ""),
-    projectManager: String(row.project_manager || row.pm || ""),
+    estimator: String(getField(row, ["bdm", "estimator", "estimating"])),
+    projectManager: String(getField(row, ["project_manager", "pm"])),
     notes: statusNotes,
-    jobNumber: String(row.job_number || row.job_no || ""),
-    buildingType: String(row.buildings || row.building_s_ || row.building_type || ""),
-    confidenceLevel: String(row.confidence_level || ""),
-    contractType: String(row.contract_type || ""),
-    bidType: String(row.bid_piggyback || row.bid_type || ""),
+    jobNumber: String(getField(row, ["job_number", "job_no", "job"])),
+    buildingType: String(getField(row, ["buildings", "building_s_", "building_type"])),
+    confidenceLevel: String(confidenceValue),
+    contractType: String(getField(row, ["contract_type"])),
+    bidType: String(getField(row, ["bid_piggyback", "bid_type"])),
     sourceType: "sales_excel",
     sourceSheet: sheetName,
-    sourceRow: index + 2,
+    sourceRow,
   };
 }
 
@@ -453,14 +461,16 @@ function readPipelineDeals() {
   if (!rows.length) return [];
   const headerIndex = rows.findIndex((row, i) => {
     if (i > 10) return false;
-    const normalized = row.map(normalizeHeader);
-    return normalized.includes("customer") && normalized.includes("project_name");
+    const normalized = row.map(normalizeHeader).filter(Boolean);
+    const hasCustomer = normalized.some((h) => h === "customer" || h === "customer_name");
+    const hasProject = normalized.some((h) => h === "project_name" || h === "project" || h === "opportunity_name");
+    return hasCustomer && hasProject;
   });
   const startRow = headerIndex >= 0 ? headerIndex : 0;
   const headers = rows[startRow].map(normalizeHeader);
   return rows.slice(startRow + 1).filter((row) => row.some((cell) => String(cell ?? "").trim())).map((row, index) => {
     const shaped = headers.reduce((acc, header, i) => ({ ...acc, [header]: row[i] }), {});
-    return mapPipelineRowToDeal(shaped, index, sheetName);
+    return mapPipelineRowToDeal(shaped, index, sheetName, startRow + 2 + index);
   });
 }
 

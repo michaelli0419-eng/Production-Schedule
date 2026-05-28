@@ -22,6 +22,50 @@ Use `Sync Excel` in the app to load the `On Line Upcoming` sheet into the schedu
 
 Use `Sync Sales Excel` in the Sales Pipeline module to import pipeline deals from `/api/pipeline`, and `Save Sales Excel` to write updates back.
 
+## Supabase Auth Setup
+
+The app now supports Supabase email/password login when these are set in `.env.local`:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+When enabled:
+
+- Login uses Supabase Auth (`email` + `password`)
+- Price visibility is controlled by `public.user_profiles.can_view_prices`
+- Role/name shown in UI comes from `public.user_profiles`
+
+### 1. Run schema
+
+Run `supabase/schema.sql` in the Supabase SQL editor.
+
+### 2. Create users
+
+Create users in Supabase Dashboard -> Authentication -> Users.
+
+### 3. Add profile rows
+
+For each user, insert a row in `public.user_profiles`:
+
+- `id` = auth user id
+- `email`
+- `full_name`
+- `role`
+- `can_view_prices` (`true` or `false`)
+
+Example:
+
+```sql
+insert into public.user_profiles (id, email, full_name, role, can_view_prices)
+values (
+  '00000000-0000-0000-0000-000000000000',
+  'michael@example.com',
+  'Michael Li',
+  'Executive',
+  true
+);
+```
+
 Environment overrides for the sync server:
 
 - `PRODUCTION_SCHEDULE_XLSX`

@@ -106,6 +106,16 @@ CREATE TABLE IF NOT EXISTS sales_pipeline_deals (
   updated_at           TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id                 UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email              TEXT UNIQUE,
+  full_name          TEXT,
+  role               TEXT DEFAULT 'User',
+  can_view_prices    BOOLEAN DEFAULT FALSE,
+  created_at         TIMESTAMPTZ DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
 
 -- ─── Auto-update updated_at ───────────────────────────────────────────────────
 
@@ -127,6 +137,11 @@ CREATE TRIGGER sales_pipeline_deals_set_updated_at
   BEFORE UPDATE ON sales_pipeline_deals
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+DROP TRIGGER IF EXISTS user_profiles_set_updated_at ON user_profiles;
+CREATE TRIGGER user_profiles_set_updated_at
+  BEFORE UPDATE ON user_profiles
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 
 -- ─── Indexes ──────────────────────────────────────────────────────────────────
 
@@ -145,11 +160,15 @@ CREATE INDEX IF NOT EXISTS idx_jobs_job_number   ON jobs (job_number);
 ALTER TABLE jobs             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE production_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_pipeline_deals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies before re-creating (safe to re-run)
 DROP POLICY IF EXISTS "scm_jobs_all"             ON jobs;
 DROP POLICY IF EXISTS "scm_production_lines_all" ON production_lines;
 DROP POLICY IF EXISTS "scm_sales_pipeline_all"   ON sales_pipeline_deals;
+DROP POLICY IF EXISTS "scm_user_profiles_self_select" ON user_profiles;
+DROP POLICY IF EXISTS "scm_user_profiles_self_update" ON user_profiles;
+DROP POLICY IF EXISTS "scm_user_profiles_service" ON user_profiles;
 
 CREATE POLICY "scm_jobs_all"
   ON jobs
@@ -168,6 +187,23 @@ CREATE POLICY "scm_sales_pipeline_all"
   FOR ALL
   USING (TRUE)
   WITH CHECK (TRUE);
+
+CREATE POLICY "scm_user_profiles_self_select"
+  ON user_profiles
+  FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "scm_user_profiles_self_update"
+  ON user_profiles
+  FOR UPDATE
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "scm_user_profiles_service"
+  ON user_profiles
+  FOR ALL
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
 
 
 -- ─── Enable Realtime ──────────────────────────────────────────────────────────

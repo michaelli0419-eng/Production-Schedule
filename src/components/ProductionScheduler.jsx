@@ -2403,6 +2403,34 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
             const p = job.procore ?? {};
             const hasData = p.rfiOpenCount || p.punchOpenCount || p.changeEventCount ||
               p.inspectionDeficient || p.observationOpenCount || p.primeContractExecuted || p.subcontractExecuted;
+            const [syncing, setSyncing] = useState(false);
+            const [syncResult, setSyncResult] = useState(null);
+
+            async function pullFromProcore() {
+              if (!job.jobNumber) { setSyncResult({ error: "No job number set on this job." }); return; }
+              setSyncing(true);
+              setSyncResult(null);
+              try {
+                const res = await fetch(
+                  "https://ixbffxowwvpzzuamvgix.supabase.co/functions/v1/procore-sync",
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ job_number: job.jobNumber }),
+                  }
+                );
+                const data = await res.json();
+                setSyncResult(data);
+                if (data.ok) {
+                  // trigger a page-level refresh so counters update live
+                  setTimeout(() => window.location.reload(), 1200);
+                }
+              } catch (e) {
+                setSyncResult({ error: e.message });
+              } finally {
+                setSyncing(false);
+              }
+            }
 
             function StatCard({ label, value, sub, tone }) {
               const colors = { red: "#fef2f2/#dc2626/#fee2e2", orange: "#fff7ed/#ea580c/#fed7aa", green: "#f0fdf4/#16a34a/#bbf7d0", blue: "#eff6ff/#2563eb/#bfdbfe", gray: "#f9fafb/#6b7280/#e5e7eb" };
@@ -2420,9 +2448,31 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
               <div className="fs-section-grid">
                 {/* Procore project link */}
                 <div className="fs-field-group fs-full">
-                  <div className="fs-section-head" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    Procore Connection <ProcoreBadge tooltip="All data on this tab is synced automatically from Procore via webhook" />
+                  <div className="fs-section-head" style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      Procore Connection <ProcoreBadge tooltip="All data on this tab is synced automatically from Procore via webhook" />
+                    </span>
+                    <button
+                      onClick={pullFromProcore}
+                      disabled={syncing}
+                      style={{ fontSize: 12, padding: "5px 14px", borderRadius: 7, border: "1px solid #e55a2b", background: syncing ? "#f3f4f6" : "#fff4f0", color: "#e55a2b", fontWeight: 700, cursor: syncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      {syncing ? "⟳ Pulling…" : "⬇ Pull from Procore"}
+                    </button>
                   </div>
+                  {syncResult && (
+                    <div style={{ padding: "10px 14px", borderRadius: 8, background: syncResult.ok ? "#f0fdf4" : "#fef2f2", border: `1px solid ${syncResult.ok ? "#bbf7d0" : "#fecaca"}`, fontSize: 13, color: syncResult.ok ? "#15803d" : "#dc2626" }}>
+                      {syncResult.ok ? (
+                        <>
+                          ✓ Synced from <strong>{syncResult.procore_project?.name}</strong> — {" "}
+                          {syncResult.synced?.submittals} submittals · {syncResult.synced?.rfis} RFIs · {syncResult.synced?.punches} punch items · {syncResult.synced?.changeEvents} change events · {syncResult.synced?.inspections} inspections · {syncResult.synced?.observations} observations
+                          <span style={{ color: "#6b7280", marginLeft: 8 }}>Refreshing…</span>
+                        </>
+                      ) : (
+                        <>✗ {syncResult.error}</>
+                      )}
+                    </div>
+                  )}
                   <label className="fs-label">Procore Project ID
                     <input className="fs-input" type="number" value={p.projectId ?? ""}
                       placeholder="Enter Procore project ID to enable matching"

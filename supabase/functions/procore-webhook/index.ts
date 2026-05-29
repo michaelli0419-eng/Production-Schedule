@@ -46,37 +46,82 @@ function str(val: any): string | null {
   return String(val);
 }
 
-/** Find SCM job by job_number or procore_project_id or notes tag */
-async function findJobId(procoreProjectId: number, jobNumber?: string): Promise<string | null> {
-  if (jobNumber) {
+/**
+ * Extract the Procore Project Number (the 5-digit SCM job number like "11667")
+ * from wherever Procore puts it in the webhook payload.
+ *
+ * Procore v4 payload shape:
+ *   { project_id: 562949955245294, project: { id: ..., number: "11667", name: "..." }, resource: {...} }
+ *
+ * Older/v3 shapes also embed number in resource.project.number or spec_section.project_number.
+ */
+function extractProjectNumber(payload: any): string | null {
+  // v4: top-level project object
+  if (payload.project?.number)                     return String(payload.project.number).trim();
+  // v3/v2: direct field
+  if (payload.project_number)                      return String(payload.project_number).trim();
+  // resource carries its own project
+  const res = payload.resource ?? {};
+  if (res.project?.number)                         return String(res.project.number).trim();
+  if (res.project_number)                          return String(res.project_number).trim();
+  // submittals embed spec_section.project_number
+  if (res.spec_section?.project_number)            return String(res.spec_section.project_number).trim();
+  return null;
+}
+
+/**
+ * Match a Procore webhook to an SCM Hub job.
+ *
+ * Priority:
+ *  1. Procore Project Number  (e.g. "11667") matched against jobs.job_number  ← PRIMARY
+ *  2. jobs.procore_project_id column (set manually in the fact sheet)
+ *  3. "procore:<id>" tag in jobs.notes (legacy fallback)
+ */
+async function findJobId(payload: any): Promise<string | null> {
+  const projectNumber  = extractProjectNumber(payload);
+  const procoreId: number = payload.project_id ?? payload.resource?.project_id ?? 0;
+
+  // 1. Match by job number (5-digit SCM number == Procore project number)
+  if (projectNumber) {
     const { data } = await supabase
       .from("jobs")
       .select("id")
-      .eq("job_number", String(jobNumber))
+      .eq("job_number", projectNumber)
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) {
+      console.log(`Matched job by project number ${projectNumber} → ${data.id}`);
+      return data.id;
+    }
+  }
+
+  // 2. Match by procore_project_id stored on the job
+  if (procoreId) {
+    const { data } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("procore_project_id", procoreId)
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) {
+      console.log(`Matched job by procore_project_id ${procoreId} → ${data.id}`);
+      return data.id;
+    }
+  }
+
+  // 3. Legacy: "procore:<id>" in notes
+  if (procoreId) {
+    const { data } = await supabase
+      .from("jobs")
+      .select("id")
+      .ilike("notes", `%procore:${procoreId}%`)
       .limit(1)
       .maybeSingle();
     if (data?.id) return data.id;
   }
 
-  // Try direct procore_project_id column
-  if (procoreProjectId) {
-    const { data } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("procore_project_id", procoreProjectId)
-      .limit(1)
-      .maybeSingle();
-    if (data?.id) return data.id;
-  }
-
-  // Fall back to notes tag
-  const { data } = await supabase
-    .from("jobs")
-    .select("id")
-    .ilike("notes", `%procore:${procoreProjectId}%`)
-    .limit(1)
-    .maybeSingle();
-  return data?.id ?? null;
+  console.warn(`No job matched — project_number=${projectNumber} procore_id=${procoreId}`);
+  return null;
 }
 
 /** Recount open/overdue items and patch back to jobs row */
@@ -141,9 +186,7 @@ function mapSubmittalStatus(s: string): string {
 
 async function handleSubmittal(payload: any) {
   const sub = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? sub.project_id;
-  const jobNumber = payload.job_number ?? sub.spec_section?.project_number;
-  const jobId = await findJobId(procoreProjectId, jobNumber);
+  const jobId = await findJobId(payload);
 
   if (jobId) {
     await supabase.from("submittals").upsert({
@@ -171,30 +214,28 @@ async function handleSubmittal(payload: any) {
   }
 
   await logActivity("submittal", String(sub.id), "procore_submittal_sync",
-    { procore_status: sub.status, procore_project_id: procoreProjectId }, jobId);
+    { procore_status: sub.status, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Daily Logs ────────────────────────────────────────────────────────────────
 
 async function handleDailyLog(payload: any) {
   const log = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? log.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
   if (!jobId) return;
 
   const { data: job } = await supabase.from("jobs").select("master_pm_update").eq("id", jobId).maybeSingle();
   const date = log.date ?? new Date().toISOString().slice(0, 10);
   const note = `[${date} via Procore Daily Log] ${log.weather ?? ""} ${log.notes ?? log.description ?? ""}`.trim();
   await supabase.from("jobs").update({ master_pm_update: [job?.master_pm_update, note].filter(Boolean).join("\n\n") }).eq("id", jobId);
-  await logActivity("job", jobId, "procore_daily_log_synced", { date, procore_project_id: procoreProjectId }, jobId);
+  await logActivity("job", jobId, "procore_daily_log_synced", { date, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── RFIs ──────────────────────────────────────────────────────────────────────
 
 async function handleRfi(payload: any) {
   const rfi = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? rfi.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
 
   if (jobId) {
     await supabase.from("procore_rfis").upsert({
@@ -218,15 +259,14 @@ async function handleRfi(payload: any) {
   }
 
   await logActivity("rfi", String(rfi.id), "procore_rfi_sync",
-    { status: rfi.status, number: rfi.number, procore_project_id: procoreProjectId }, jobId);
+    { status: rfi.status, number: rfi.number, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Punch Items ───────────────────────────────────────────────────────────────
 
 async function handlePunchItem(payload: any) {
   const item = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? item.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
 
   if (jobId) {
     await supabase.from("procore_punch_items").upsert({
@@ -251,15 +291,14 @@ async function handlePunchItem(payload: any) {
   }
 
   await logActivity("punch_item", String(item.id), "procore_punch_item_sync",
-    { status: item.status, priority: item.priority, procore_project_id: procoreProjectId }, jobId);
+    { status: item.status, priority: item.priority, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Change Events ─────────────────────────────────────────────────────────────
 
 async function handleChangeEvent(payload: any) {
   const ce = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? ce.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
 
   if (jobId) {
     await supabase.from("procore_change_events").upsert({
@@ -279,15 +318,14 @@ async function handleChangeEvent(payload: any) {
   }
 
   await logActivity("change_event", String(ce.id), "procore_change_event_sync",
-    { status: str(ce.status), title: ce.title, procore_project_id: procoreProjectId }, jobId);
+    { status: str(ce.status), title: ce.title, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Inspections / Checklists ──────────────────────────────────────────────────
 
 async function handleInspection(payload: any) {
   const insp = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? insp.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
 
   if (jobId) {
     const deficient = insp.deficient_item_count ?? 0;
@@ -326,15 +364,14 @@ async function handleInspection(payload: any) {
   }
 
   await logActivity("inspection", String(insp.id), "procore_inspection_sync",
-    { status: insp.status, deficient: insp.deficient_item_count, procore_project_id: procoreProjectId }, jobId);
+    { status: insp.status, deficient: insp.deficient_item_count, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Observations ──────────────────────────────────────────────────────────────
 
 async function handleObservation(payload: any) {
   const obs = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? obs.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
 
   if (jobId) {
     await supabase.from("procore_observations").upsert({
@@ -356,15 +393,14 @@ async function handleObservation(payload: any) {
   }
 
   await logActivity("observation", String(obs.id), "procore_observation_sync",
-    { status: obs.status, priority: obs.priority, procore_project_id: procoreProjectId }, jobId);
+    { status: obs.status, priority: obs.priority, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Meetings ──────────────────────────────────────────────────────────────────
 
 async function handleMeeting(payload: any) {
   const mtg = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? mtg.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
   if (!jobId) return;
 
   const { data: job } = await supabase.from("jobs").select("master_pm_update").eq("id", jobId).maybeSingle();
@@ -372,15 +408,14 @@ async function handleMeeting(payload: any) {
   const note = `[${date} Procore Meeting] ${mtg.title ?? "Meeting"} — ${mtg.conclusion ?? mtg.description ?? ""}`.trim();
   await supabase.from("jobs").update({ master_pm_update: [job?.master_pm_update, note].filter(Boolean).join("\n\n") }).eq("id", jobId);
   await logActivity("meeting", String(mtg.id), "procore_meeting_synced",
-    { title: mtg.title, date, procore_project_id: procoreProjectId }, jobId);
+    { title: mtg.title, date, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Work Order Contracts (Subcontracts) ───────────────────────────────────────
 
 async function handleWorkOrderContract(payload: any) {
   const woc = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? woc.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
   if (!jobId) return;
 
   const patch: any = {};
@@ -399,15 +434,14 @@ async function handleWorkOrderContract(payload: any) {
 
   await supabase.from("jobs").update(patch).eq("id", jobId);
   await logActivity("work_order_contract", String(woc.id), "procore_subcontract_sync",
-    { executed: woc.executed, grand_total: woc.grand_total, procore_project_id: procoreProjectId }, jobId);
+    { executed: woc.executed, grand_total: woc.grand_total, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Prime Contract ────────────────────────────────────────────────────────────
 
 async function handlePrimeContract(payload: any) {
   const pc = payload.resource ?? payload;
-  const procoreProjectId = payload.project_id ?? pc.project_id;
-  const jobId = await findJobId(procoreProjectId, payload.job_number);
+  const jobId = await findJobId(payload);
   if (!jobId) return;
 
   const patch: any = {};
@@ -424,8 +458,8 @@ async function handlePrimeContract(payload: any) {
   patch.master_contract = parts.join(" · ");
 
   await supabase.from("jobs").update(patch).eq("id", jobId);
-  await logActivity("prime_contract", String(pc.id ?? procoreProjectId), "procore_prime_contract_sync",
-    { executed: pc.executed, execution_date: pc.execution_date, procore_project_id: procoreProjectId }, jobId);
+  await logActivity("prime_contract", String(pc.id ?? payload.project_id), "procore_prime_contract_sync",
+    { executed: pc.executed, execution_date: pc.execution_date, procore_project_id: payload.project_id }, jobId);
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { useJobs } from "../hooks/useJobs.js";
 import { usePipelineDeals } from "../hooks/usePipelineDeals.js";
 import { useSubmittals } from "../hooks/useSubmittals.js";
 import { useUserProfiles } from "../hooks/useUserProfiles.js";
-import { isSupabaseEnabled } from "../lib/supabase.js";
+import { isSupabaseEnabled, supabase as supabaseClient } from "../lib/supabase.js";
 import { logActivity } from "../lib/activityApi.js";
 
 const FALLBACK_YEAR = 2026;
@@ -507,6 +507,7 @@ function ModuleWorkspace({
   onOpenProduction,
   onFilterByPm,
   onAddJobFromDeal,
+  onOpenFactSheet,
   canViewPrices,
   userAdmin,
 }) {
@@ -518,6 +519,70 @@ function ModuleWorkspace({
   const [subSearch, setSubSearch] = useState("");
   const [subStatusFilter, setSubStatusFilter] = useState("all");
   const [subLineFilter, setSubLineFilter] = useState("all");
+  // Active Production state — hoisted here to satisfy Rules of Hooks
+  const [editingCell, setEditingCell] = useState(null);
+  const [apSearch, setApSearch] = useState("");
+  const [apLineFilter, setApLineFilter] = useState("all");
+  const [apStatusFilter, setApStatusFilter] = useState("all");
+  const [selectedRows, setSelectedRows] = useState(new Set());
+  const [batchShiftDays, setBatchShiftDays] = useState("");
+  const [showBatchShift, setShowBatchShift] = useState(false);
+  // Procore integration panel state
+  const [procoreActivity, setProcoreActivity] = useState([]);
+  useEffect(() => {
+    if (!supabaseClient) return;
+    supabaseClient.from("activity_log")
+      .select("*")
+      .in("action", ["procore_submittal_sync", "procore_daily_log_synced"])
+      .order("created_at", { ascending: false })
+      .limit(10)
+      .then(({ data }) => { if (data) setProcoreActivity(data); });
+  }, []);
+
+  function startEdit(jobId, field) { setEditingCell({ jobId, field }); }
+  function commitEdit(jobId, field, value) {
+    if (field.startsWith("master.")) {
+      updateMasterField(jobId, field.replace("master.", ""), value);
+    } else {
+      updateJob(jobId, { [field]: value });
+    }
+    setEditingCell(null);
+  }
+  function EditableCell({ job, field, type = "text", options, placeholder }) {
+    const isEditing = editingCell?.jobId === job.id && editingCell?.field === field;
+    const rawValue = field.startsWith("master.")
+      ? job.master?.[field.replace("master.", "")] ?? ""
+      : job[field] ?? "";
+    if (!isEditing) {
+      return (
+        <div className="ps-ap-cell" onClick={() => startEdit(job.id, field)} title="Click to edit">
+          {rawValue
+            ? (type === "date" ? displayDate(rawValue) : rawValue)
+            : <span className="ps-ap-empty">{placeholder || "—"}</span>}
+        </div>
+      );
+    }
+    if (options) {
+      return (
+        <select className="ps-ap-input" autoFocus value={rawValue}
+          onChange={(e) => commitEdit(job.id, field, e.target.value)}
+          onBlur={() => setEditingCell(null)}>
+          {options.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
+        </select>
+      );
+    }
+    return (
+      <input className="ps-ap-input" autoFocus type={type === "date" ? "date" : "text"} value={rawValue}
+        onChange={(e) => {
+          if (field.startsWith("master.")) { updateMasterField(job.id, field.replace("master.", ""), e.target.value); }
+          else { updateJob(job.id, { [field]: e.target.value }); }
+        }}
+        onBlur={() => setEditingCell(null)}
+        onKeyDown={(e) => { if (e.key === "Enter") commitEdit(job.id, field, e.target.value); if (e.key === "Escape") setEditingCell(null); }}
+        placeholder={placeholder}
+      />
+    );
+  }
 
   const pipelineRows = pipelineDeals.map((deal, index) => {
     const stage = PIPELINE_STAGES.find((item) => item.id === deal.stage) || getPipelineStage(jobs[index] || { status: "forecast" }, index);
@@ -970,6 +1035,53 @@ function ModuleWorkspace({
             </div>
           </div>
         )}
+
+        {/* ── Procore Integration Status ─────────────────────────────────── */}
+        <div className="ps-dash-pm-section" style={{ marginTop: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>Procore Integration</h2>
+            <span className={`ps-pm-badge ${procoreActivity.length > 0 ? "is-prod" : ""}`}
+              style={{ fontSize: 12, padding: "2px 10px", borderRadius: 99 }}>
+              {procoreActivity.length > 0 ? "● Live" : "○ No events yet"}
+            </span>
+          </div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>
+            Webhook: <code style={{ background: "#f3f4f6", padding: "1px 6px", borderRadius: 4, fontSize: 12 }}>
+              https://ixbffxowwvpzzuamvgix.supabase.co/functions/v1/procore-webhook
+            </code>
+          </div>
+          {procoreActivity.length === 0 ? (
+            <p style={{ color: "#9ca3af", fontSize: 13, margin: 0 }}>
+              No synced events yet — configure Procore to send submittals.update and daily_logs.create to the webhook URL above.
+            </p>
+          ) : (
+            <div className="ps-dash-pm-grid" style={{ gridTemplateColumns: "1fr 1fr 2fr", gap: 0 }}>
+              <div className="ps-dash-pm-row ps-dash-pm-header">
+                <span>Time</span>
+                <span>Event</span>
+                <span>Detail</span>
+              </div>
+              {procoreActivity.map((ev) => (
+                <div key={ev.id} className="ps-dash-pm-row">
+                  <span style={{ color: "#6b7280", fontSize: 12 }}>
+                    {ev.created_at ? new Date(ev.created_at).toLocaleString() : "—"}
+                  </span>
+                  <span>
+                    <span className={`ps-pm-badge ${ev.action === "procore_submittal_sync" ? "is-ship" : "is-prod"}`}
+                      style={{ fontSize: 11 }}>
+                      {ev.action === "procore_submittal_sync" ? "Submittal" : "Daily Log"}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 12, color: "#374151" }}>
+                    {ev.detail?.procore_status ? `Status: ${ev.detail.procore_status}` : ""}
+                    {ev.detail?.date ? ` Date: ${ev.detail.date}` : ""}
+                    {ev.detail?.job_id ? ` · Job: ${ev.detail.job_id}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
     );
   }
@@ -1548,15 +1660,6 @@ function ModuleWorkspace({
   }
 
   if (module.id === "projects") {
-    // Inline edit state — track which cell is being edited
-    const [editingCell, setEditingCell] = React.useState(null); // { jobId, field }
-    const [apSearch, setApSearch] = React.useState("");
-    const [apLineFilter, setApLineFilter] = React.useState("all");
-    const [apStatusFilter, setApStatusFilter] = React.useState("all");
-    const [selectedRows, setSelectedRows] = React.useState(new Set());
-    const [batchShiftDays, setBatchShiftDays] = React.useState("");
-    const [showBatchShift, setShowBatchShift] = React.useState(false);
-
     const activeJobs = jobs.filter((j) => j.status !== "complete" && j.status !== "forecast");
 
     const filteredActiveJobs = activeJobs.filter((j) => {
@@ -1566,19 +1669,6 @@ function ModuleWorkspace({
       const matchSearch = !apSearch.trim() || hay.includes(apSearch.trim().toLowerCase());
       return matchLine && matchStatus && matchSearch;
     });
-
-    function startEdit(jobId, field) {
-      setEditingCell({ jobId, field });
-    }
-
-    function commitEdit(jobId, field, value) {
-      if (field.startsWith("master.")) {
-        updateMasterField(jobId, field.replace("master.", ""), value);
-      } else {
-        updateJob(jobId, { [field]: value });
-      }
-      setEditingCell(null);
-    }
 
     function toggleRow(id) {
       setSelectedRows((prev) => {
@@ -1610,59 +1700,6 @@ function ModuleWorkspace({
       setSelectedRows(new Set());
       setBatchShiftDays("");
       setShowBatchShift(false);
-    }
-
-    function EditableCell({ job, field, type = "text", options, placeholder }) {
-      const isEditing = editingCell?.jobId === job.id && editingCell?.field === field;
-      const rawValue = field.startsWith("master.")
-        ? job.master?.[field.replace("master.", "")] ?? ""
-        : job[field] ?? "";
-
-      if (!isEditing) {
-        return (
-          <div
-            className="ps-ap-cell"
-            onClick={() => startEdit(job.id, field)}
-            title="Click to edit"
-          >
-            {rawValue
-              ? (type === "date" ? displayDate(rawValue) : rawValue)
-              : <span className="ps-ap-empty">{placeholder || "—"}</span>}
-          </div>
-        );
-      }
-
-      if (options) {
-        return (
-          <select
-            className="ps-ap-input"
-            autoFocus
-            value={rawValue}
-            onChange={(e) => commitEdit(job.id, field, e.target.value)}
-            onBlur={() => setEditingCell(null)}
-          >
-            {options.map((o) => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
-          </select>
-        );
-      }
-      return (
-        <input
-          className="ps-ap-input"
-          autoFocus
-          type={type === "date" ? "date" : "text"}
-          value={rawValue}
-          onChange={(e) => {
-            if (field.startsWith("master.")) {
-              updateMasterField(job.id, field.replace("master.", ""), e.target.value);
-            } else {
-              updateJob(job.id, { [field]: e.target.value });
-            }
-          }}
-          onBlur={() => setEditingCell(null)}
-          onKeyDown={(e) => { if (e.key === "Enter") commitEdit(job.id, field, e.target.value); if (e.key === "Escape") setEditingCell(null); }}
-          placeholder={placeholder}
-        />
-      );
     }
 
     const statusOptions = Object.entries(STATUS_CONFIG).map(([value, v]) => ({ value, label: v.label }));
@@ -1764,8 +1801,10 @@ function ModuleWorkspace({
                       <input type="checkbox" checked={isSelected} onChange={() => toggleRow(job.id)} />
                     </td>
                     <td className="ps-ap-job-cell">
-                      <strong>{job.name}</strong>
-                      <small>{job.client}{job.jobNumber ? ` · #${job.jobNumber}` : ""}</small>
+                      <button className="fs-open-btn" onClick={() => onOpenFactSheet?.(job.id)} title="Open fact sheet">
+                        <strong>{job.name}</strong>
+                        <small>{job.client}{job.jobNumber ? ` · #${job.jobNumber}` : ""}</small>
+                      </button>
                     </td>
                     <td><EditableCell job={job} field="pm" placeholder="Assign PM" /></td>
                     <td>
@@ -2066,6 +2105,293 @@ function dateFieldHelp(job) {
   };
 }
 
+// ── Procore sync badge ────────────────────────────────────────────────────────
+function ProcoreBadge({ tooltip }) {
+  return (
+    <span className="fs-procore-badge" title={tooltip || "This field is automatically updated by Procore via webhook"}>
+      <svg width="10" height="10" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <circle cx="10" cy="10" r="9" fill="#e55a2b" />
+        <text x="10" y="14" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="bold" fontFamily="sans-serif">P</text>
+      </svg>
+      Procore
+    </span>
+  );
+}
+
+// ── Job Fact Sheet (full slide-over drawer) ──────────────────────────────────
+const FS_TABS = [
+  { id: "overview",    label: "Overview" },
+  { id: "schedule",   label: "Schedule" },
+  { id: "dsa",        label: "DSA & Submittals" },
+  { id: "production", label: "Production" },
+  { id: "notes",      label: "Notes" },
+];
+
+function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
+  const [tab, setTab] = useState("overview");
+  if (!job) return null;
+  const u = (patch) => updateJob(job.id, patch);
+  const m = (field, val) => updateMasterField(job.id, field, val);
+  const dateHelp = dateFieldHelp(job);
+
+  return (
+    <div className="fs-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <aside className="fs-drawer" role="dialog" aria-label={`Fact Sheet: ${job.name}`}>
+
+        {/* Header */}
+        <div className="fs-header">
+          <div className="fs-header-left">
+            <span className="fs-job-number">{job.jobNumber || "—"}</span>
+            <h2 className="fs-title">{job.name}</h2>
+            <span className="fs-client">{job.client}</span>
+          </div>
+          <div className="fs-header-right">
+            <StatusChip status={job.status} />
+            <button className="fs-close" onClick={onClose} aria-label="Close">✕</button>
+          </div>
+        </div>
+
+        {/* Tab bar */}
+        <div className="fs-tabs" role="tablist">
+          {FS_TABS.map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id}
+              className={`fs-tab${tab === t.id ? " is-active" : ""}`}
+              onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="fs-body">
+
+          {/* ── Overview ── */}
+          {tab === "overview" && (
+            <div className="fs-section-grid">
+              <div className="fs-field-group">
+                <label className="fs-label">Project Name
+                  <input className="fs-input" value={job.name} onChange={(e) => u({ name: e.target.value })} />
+                </label>
+                <label className="fs-label">Job Number
+                  <input className="fs-input" value={job.jobNumber || ""} onChange={(e) => u({ jobNumber: e.target.value })} />
+                </label>
+                <label className="fs-label">Client / District
+                  <input className="fs-input" value={job.client || ""} onChange={(e) => u({ client: e.target.value })} />
+                </label>
+                <label className="fs-label">Project Manager
+                  <input className="fs-input" value={job.pm || ""} placeholder="e.g. Joe/Rod" onChange={(e) => u({ pm: e.target.value })} />
+                </label>
+              </div>
+              <div className="fs-field-group">
+                <label className="fs-label">Status
+                  <select className="fs-input" value={job.status} onChange={(e) => u({ status: e.target.value })}>
+                    {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                  </select>
+                </label>
+                <label className="fs-label">Line
+                  <select className="fs-input" value={job.line} onChange={(e) => u({ line: e.target.value })}>
+                    {LINES.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    <option value={QUEUE}>Queue</option>
+                  </select>
+                </label>
+                <label className="fs-label">Priority
+                  <select className="fs-input" value={job.priority} onChange={(e) => u({ priority: e.target.value })}>
+                    {["Low","Medium","High","Critical"].map((p) => <option key={p}>{p}</option>)}
+                  </select>
+                </label>
+                <label className="fs-label">Progress %
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input className="fs-input" type="number" min="0" max="100" value={job.progress}
+                      onChange={(e) => u({ progress: Number(e.target.value) })} style={{ width: 80 }} />
+                    <div style={{ flex: 1, height: 8, background: "#e5e7eb", borderRadius: 99 }}>
+                      <div style={{ width: `${job.progress}%`, height: "100%", background: "#f97316", borderRadius: 99, transition: "width .3s" }} />
+                    </div>
+                  </div>
+                </label>
+              </div>
+              <div className="fs-field-group fs-full">
+                <label className="fs-label">Modules
+                  <input className="fs-input" type="number" min="1" value={job.modules} style={{ width: 100 }}
+                    onChange={(e) => u({ modules: Number(e.target.value) })} />
+                </label>
+                <label className="fs-label">Crew Size
+                  <input className="fs-input" type="number" min="1" value={job.crew} style={{ width: 100 }}
+                    onChange={(e) => u({ crew: Number(e.target.value) })} />
+                </label>
+                <label className="fs-label">Bar Color
+                  <input className="fs-input" type="color" value={job.color} style={{ width: 60, padding: 2, height: 36 }}
+                    onChange={(e) => u({ color: e.target.value })} />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* ── Schedule ── */}
+          {tab === "schedule" && (
+            <div className="fs-section-grid">
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Production Timeline</div>
+                <div className="fs-date-row">
+                  <label className="fs-label">Topset Date <small>{dateHelp.start}</small>
+                    <input className="fs-input" type="date" value={job.start}
+                      onChange={(e) => u({ start: e.target.value })} />
+                  </label>
+                  <label className="fs-label">Topset Complete <small>{dateHelp.offLine}</small>
+                    <input className="fs-input" type="date" value={job.offLine || defaultTopsetCompleteDate(job.start)}
+                      onChange={(e) => u({ offLine: e.target.value })} />
+                  </label>
+                  <label className="fs-label">Ship Date <small>{dateHelp.end}</small>
+                    <input className="fs-input" type="date" value={job.end}
+                      onChange={(e) => u({ end: e.target.value })} />
+                  </label>
+                  <label className="fs-label">Set Date <small>{dateHelp.due}</small>
+                    <input className="fs-input" type="date" value={job.due}
+                      onChange={(e) => u({ due: e.target.value })} />
+                  </label>
+                </div>
+                <div className="fs-date-stats">
+                  <div><strong>{dateDiffDays(job.start, job.end)}</strong><span>factory days</span></div>
+                  <div>
+                    <strong>{job.end > job.due
+                      ? `${dateDiffDays(job.due, job.end)}d late`
+                      : `${dateDiffDays(job.end, job.due)}d buffer`}</strong>
+                    <span>ship → set</span>
+                  </div>
+                  <div><strong>{job.modules}</strong><span>modules</span></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── DSA & Submittals ── */}
+          {tab === "dsa" && (
+            <div className="fs-section-grid">
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Contract & Submittals</div>
+                <label className="fs-label">Contract
+                  <textarea className="fs-input fs-textarea" value={job.master?.contract || ""}
+                    onChange={(e) => m("contract", e.target.value)} />
+                </label>
+                <div className="fs-two-col">
+                  <label className="fs-label">
+                    <span className="fs-label-row">Submittals Out <ProcoreBadge tooltip="Set by Procore when a submittal is sent (submitted_at)" /></span>
+                    <input className="fs-input" type="date" value={job.master?.submittalsOut || ""}
+                      onChange={(e) => m("submittalsOut", e.target.value)} />
+                  </label>
+                  <label className="fs-label">
+                    <span className="fs-label-row">Submittals Received <ProcoreBadge tooltip="Set by Procore when a submittal is returned (received_at)" /></span>
+                    <input className="fs-input" type="date" value={job.master?.submittalsReceived || ""}
+                      onChange={(e) => m("submittalsReceived", e.target.value)} />
+                  </label>
+                </div>
+              </div>
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">DSA Review</div>
+                <div className="fs-two-col">
+                  <label className="fs-label">
+                    <span className="fs-label-row">DSA Status <ProcoreBadge tooltip="Updated by Procore when submittal status changes (approved, under_review, revise_and_resubmit, etc.)" /></span>
+                    <input className="fs-input" value={job.master?.dsaStatus || ""}
+                      placeholder="e.g. Approved, Under Review"
+                      onChange={(e) => m("dsaStatus", e.target.value)} />
+                  </label>
+                  <label className="fs-label">
+                    <span className="fs-label-row">Est. DSA Approval Date <ProcoreBadge tooltip="Set by Procore when submittal is approved (approved_at)" /></span>
+                    <input className="fs-input" type="date" value={job.master?.dsaApproval || ""}
+                      onChange={(e) => m("dsaApproval", e.target.value)} />
+                  </label>
+                </div>
+                <label className="fs-label">DSA Redlines
+                  <textarea className="fs-input fs-textarea" value={job.master?.dsaRedlines || ""}
+                    onChange={(e) => m("dsaRedlines", e.target.value)} />
+                </label>
+                <div className="fs-two-col">
+                  <label className="fs-label">Inspector
+                    <input className="fs-input" value={job.master?.inspector || ""}
+                      onChange={(e) => m("inspector", e.target.value)} />
+                  </label>
+                  <label className="fs-label">Lab
+                    <input className="fs-input" value={job.master?.lab || ""}
+                      onChange={(e) => m("lab", e.target.value)} />
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Production ── */}
+          {tab === "production" && (
+            <div className="fs-section-grid">
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Factory Status</div>
+                <div className="fs-two-col">
+                  <label className="fs-label">Job Card
+                    <input className="fs-input" value={job.master?.jobCard || ""}
+                      onChange={(e) => m("jobCard", e.target.value)} />
+                  </label>
+                  <label className="fs-label">Factory Subcontract Status
+                    <input className="fs-input" value={job.master?.subcontractStatus || ""}
+                      onChange={(e) => m("subcontractStatus", e.target.value)} />
+                  </label>
+                </div>
+              </div>
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Production Readiness</div>
+                <div className="fs-readiness-grid">
+                  {[["drawings","Drawings / Plans"],["materials","Materials"],["permits","Permits"],["inspections","QA / Inspections"]].map(([key, lbl]) => (
+                    <label key={key} className="fs-check-label">
+                      <input type="checkbox" checked={job.readiness?.[key] ?? false}
+                        onChange={(e) => u({ readiness: { ...job.readiness, [key]: e.target.checked } })} />
+                      <span className={job.readiness?.[key] ? "fs-check-done" : ""}>{lbl}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="fs-readiness-bar">
+                  {["drawings","materials","permits","inspections"].map((k) => (
+                    <div key={k} className={`fs-ready-pip ${job.readiness?.[k] ? "is-done" : ""}`} title={k} />
+                  ))}
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>
+                    {Object.values(job.readiness || {}).filter(Boolean).length}/4 ready
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Notes ── */}
+          {tab === "notes" && (
+            <div className="fs-section-grid">
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Open Items</div>
+                <textarea className="fs-input fs-textarea fs-textarea-lg"
+                  value={job.master?.openItems || ""}
+                  placeholder="List open items, blockers, action items…"
+                  onChange={(e) => m("openItems", e.target.value)} />
+              </div>
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  PM Update <ProcoreBadge tooltip="Procore daily log entries are automatically appended here with a date stamp" />
+                </div>
+                <textarea className="fs-input fs-textarea fs-textarea-lg"
+                  value={job.master?.pmUpdate || ""}
+                  placeholder="Latest PM update / site notes…"
+                  onChange={(e) => m("pmUpdate", e.target.value)} />
+              </div>
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">General Notes</div>
+                <textarea className="fs-input fs-textarea"
+                  value={job.notes || ""}
+                  placeholder="Any other notes…"
+                  onChange={(e) => u({ notes: e.target.value })} />
+              </div>
+            </div>
+          )}
+
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 // ── Week tick data for the timeline header ──────────────────────────────────
 function buildWeekTicks(dayPx, timelineStart, timelineEnd) {
   const ticks = [];
@@ -2114,8 +2440,9 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const [lineFilter, setLineFilter] = useState("all");
   const [pmFilter, setPmFilter] = useState("all");
   const [summaryList, setSummaryList] = useState(null);
-  const [activeModule, setActiveModule] = useState("production");
+  const [activeModule, setActiveModule] = useState("dashboard");
   const [scheduleView, setScheduleView] = useState("production");
+  const [factSheetId, setFactSheetId] = useState(null);
   const [dayPx, setDayPx] = useState(4);
   const [simulationMode, setSimulationMode] = useState(false);
   const [simulationJobs, setSimulationJobs] = useState(null);
@@ -3203,8 +3530,9 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                       left: dateToX(layout.trackRange.start),
                       width,
                     }}
-                    title={`${job.name}\n${layout.view.endLabel} view\nTopset: ${displayDate(layout.dates.start)}\nTopset Complete: ${displayDate(layout.dates.offLine)}\nShipping: ${displayDate(layout.dates.end)}\nSet: ${displayDate(layout.dates.due)}\n${job.modules} modules`}
+                    title={`${job.name}\n${layout.view.endLabel} view\nTopset: ${displayDate(layout.dates.start)}\nTopset Complete: ${displayDate(layout.dates.offLine)}\nShipping: ${displayDate(layout.dates.end)}\nSet: ${displayDate(layout.dates.due)}\n${job.modules} modules\n\nDouble-click to open fact sheet`}
                     onMouseDown={(e) => startDrag(e, job.id)}
+                    onDoubleClick={() => setFactSheetId(job.id)}
                   >
                     {showFollowOnDates && (
                       <>
@@ -3274,7 +3602,19 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           <section className="ps-panel">
             <div className="ps-panel-head">
               <h2>Job Details</h2>
-              {selectedJob && <StatusChip status={selectedJob.status} />}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {selectedJob && <StatusChip status={selectedJob.status} />}
+                {selectedJob && (
+                  <button
+                    type="button"
+                    onClick={() => setFactSheetId(selectedJob.id)}
+                    style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#f9fafb", cursor: "pointer", fontWeight: 600, color: "#374151" }}
+                    title="Open full fact sheet"
+                  >
+                    Full Sheet ↗
+                  </button>
+                )}
+              </div>
             </div>
             {selectedJob ? (
               <div className="ps-editor">
@@ -3609,10 +3949,23 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
             setActiveModule("production");
           }}
           onAddJobFromDeal={addJobFromDeal}
+          onOpenFactSheet={setFactSheetId}
         />
       )}
 
       {toast && <div className="ps-toast">{toast}</div>}
+
+      {factSheetId && (() => {
+        const fsJob = workingJobs.find((j) => j.id === factSheetId);
+        return fsJob ? (
+          <JobFactSheet
+            job={fsJob}
+            onClose={() => setFactSheetId(null)}
+            updateJob={updateJob}
+            updateMasterField={updateMasterField}
+          />
+        ) : null;
+      })()}
     </main>
   );
 }

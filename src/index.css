@@ -3142,3 +3142,28 @@ select.ps-ap-input { cursor: pointer; }
   font-weight: 600;
   color: #374151;
 }
+
+/* Procore live counter pills in Active Production table */
+.fs-ap-procore-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.fs-ap-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 99px;
+  letter-spacing: .03em;
+  white-space: nowrap;
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+.fs-ap-pill.is-red    { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+.fs-ap-pill.is-orange { background: #fff7ed; color: #ea580c; border-color: #fed7aa; }
+.fs-ap-pill.is-blue   { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+.fs-ap-pill.is-green  { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }

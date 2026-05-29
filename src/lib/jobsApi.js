@@ -64,6 +64,22 @@ export function dbRowToJob(row) {
       openItems:           row.master_open_items           ?? "",
       pmUpdate:            row.master_pm_update            ?? "",
     },
+    // Procore live counters (read-only — written by webhook handler)
+    procore: {
+      projectId:             row.procore_project_id           ?? null,
+      rfiOpenCount:          row.rfi_open_count               ?? 0,
+      rfiOverdueCount:       row.rfi_overdue_count            ?? 0,
+      punchOpenCount:        row.punch_open_count             ?? 0,
+      punchScheduleImpact:   row.punch_schedule_impact_days   ?? 0,
+      changeEventCount:      row.change_event_count           ?? 0,
+      inspectionDeficient:   row.inspection_deficient_count   ?? 0,
+      observationOpenCount:  row.observation_open_count       ?? 0,
+      primeContractExecuted: row.prime_contract_executed      ?? false,
+      primeContractDate:     row.prime_contract_date          ?? "",
+      subcontractExecuted:   row.subcontract_executed         ?? false,
+      subcontractAmount:     row.subcontract_amount           ?? null,
+      subcontractDate:       row.subcontract_date             ?? "",
+    },
   };
 }
 

@@ -347,6 +347,21 @@ function normalizeJob(job, index) {
       openItems: job.master?.openItems || "",
       pmUpdate: job.master?.pmUpdate || "",
     },
+    procore: {
+      projectId:             job.procore?.projectId             ?? null,
+      rfiOpenCount:          job.procore?.rfiOpenCount          ?? 0,
+      rfiOverdueCount:       job.procore?.rfiOverdueCount       ?? 0,
+      punchOpenCount:        job.procore?.punchOpenCount        ?? 0,
+      punchScheduleImpact:   job.procore?.punchScheduleImpact   ?? 0,
+      changeEventCount:      job.procore?.changeEventCount      ?? 0,
+      inspectionDeficient:   job.procore?.inspectionDeficient   ?? 0,
+      observationOpenCount:  job.procore?.observationOpenCount  ?? 0,
+      primeContractExecuted: job.procore?.primeContractExecuted ?? false,
+      primeContractDate:     job.procore?.primeContractDate     ?? "",
+      subcontractExecuted:   job.procore?.subcontractExecuted   ?? false,
+      subcontractAmount:     job.procore?.subcontractAmount     ?? null,
+      subcontractDate:       job.procore?.subcontractDate       ?? "",
+    },
   };
 }
 
@@ -1804,6 +1819,30 @@ function ModuleWorkspace({
                       <button className="fs-open-btn" onClick={() => onOpenFactSheet?.(job.id)} title="Open fact sheet">
                         <strong>{job.name}</strong>
                         <small>{job.client}{job.jobNumber ? ` · #${job.jobNumber}` : ""}</small>
+                        {(job.procore?.rfiOpenCount > 0 || job.procore?.punchOpenCount > 0 || job.procore?.changeEventCount > 0 || job.procore?.inspectionDeficient > 0) && (
+                          <span className="fs-ap-procore-pills">
+                            {job.procore?.rfiOpenCount > 0 && (
+                              <span className={`fs-ap-pill ${job.procore.rfiOverdueCount > 0 ? "is-red" : "is-orange"}`} title={`${job.procore.rfiOpenCount} open RFI${job.procore.rfiOpenCount !== 1 ? "s" : ""}${job.procore.rfiOverdueCount > 0 ? ` (${job.procore.rfiOverdueCount} overdue)` : ""}`}>
+                                RFI {job.procore.rfiOpenCount}
+                              </span>
+                            )}
+                            {job.procore?.punchOpenCount > 0 && (
+                              <span className={`fs-ap-pill ${job.procore.punchScheduleImpact > 0 ? "is-red" : "is-orange"}`} title={`${job.procore.punchOpenCount} open punch item${job.procore.punchOpenCount !== 1 ? "s" : ""}${job.procore.punchScheduleImpact > 0 ? ` · ${job.procore.punchScheduleImpact}d schedule impact` : ""}`}>
+                                Punch {job.procore.punchOpenCount}
+                              </span>
+                            )}
+                            {job.procore?.changeEventCount > 0 && (
+                              <span className="fs-ap-pill is-blue" title={`${job.procore.changeEventCount} open change event${job.procore.changeEventCount !== 1 ? "s" : ""}`}>
+                                CE {job.procore.changeEventCount}
+                              </span>
+                            )}
+                            {job.procore?.inspectionDeficient > 0 && (
+                              <span className="fs-ap-pill is-red" title={`${job.procore.inspectionDeficient} inspection deficienc${job.procore.inspectionDeficient !== 1 ? "ies" : "y"}`}>
+                                ✗ Insp {job.procore.inspectionDeficient}
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </button>
                     </td>
                     <td><EditableCell job={job} field="pm" placeholder="Assign PM" /></td>
@@ -2124,6 +2163,7 @@ const FS_TABS = [
   { id: "schedule",   label: "Schedule" },
   { id: "dsa",        label: "DSA & Submittals" },
   { id: "production", label: "Production" },
+  { id: "procore",    label: "Procore Live" },
   { id: "notes",      label: "Notes" },
 ];
 
@@ -2358,6 +2398,92 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
           )}
 
           {/* ── Notes ── */}
+          {/* ── Procore Live ── */}
+          {tab === "procore" && (() => {
+            const p = job.procore ?? {};
+            const hasData = p.rfiOpenCount || p.punchOpenCount || p.changeEventCount ||
+              p.inspectionDeficient || p.observationOpenCount || p.primeContractExecuted || p.subcontractExecuted;
+
+            function StatCard({ label, value, sub, tone }) {
+              const colors = { red: "#fef2f2/#dc2626/#fee2e2", orange: "#fff7ed/#ea580c/#fed7aa", green: "#f0fdf4/#16a34a/#bbf7d0", blue: "#eff6ff/#2563eb/#bfdbfe", gray: "#f9fafb/#6b7280/#e5e7eb" };
+              const [bg, text, border] = (colors[tone] || colors.gray).split("/");
+              return (
+                <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: text }}>{label}</span>
+                  <span style={{ fontSize: 28, fontWeight: 800, color: text, lineHeight: 1 }}>{value ?? "—"}</span>
+                  {sub && <span style={{ fontSize: 12, color: text, opacity: .75 }}>{sub}</span>}
+                </div>
+              );
+            }
+
+            return (
+              <div className="fs-section-grid">
+                {/* Procore project link */}
+                <div className="fs-field-group fs-full">
+                  <div className="fs-section-head" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    Procore Connection <ProcoreBadge tooltip="All data on this tab is synced automatically from Procore via webhook" />
+                  </div>
+                  <label className="fs-label">Procore Project ID
+                    <input className="fs-input" type="number" value={p.projectId ?? ""}
+                      placeholder="Enter Procore project ID to enable matching"
+                      onChange={(e) => u({ procore_project_id: e.target.value ? Number(e.target.value) : null })} />
+                    <small style={{ color: "#9ca3af", marginTop: 2 }}>Set this to link the job to a Procore project. Webhooks will auto-match by job number first, then this ID.</small>
+                  </label>
+                </div>
+
+                {!hasData ? (
+                  <div className="fs-field-group fs-full">
+                    <p style={{ color: "#9ca3af", fontSize: 13, padding: "16px 0" }}>
+                      No Procore events synced yet for this job. Once Procore sends webhooks (RFIs, punch items, inspections, etc.) they will appear here automatically.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Live counters grid */}
+                    <div className="fs-field-group fs-full">
+                      <div className="fs-section-head">Live Counters</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+                        <StatCard label="Open RFIs" value={p.rfiOpenCount}
+                          sub={p.rfiOverdueCount > 0 ? `${p.rfiOverdueCount} overdue` : "none overdue"}
+                          tone={p.rfiOverdueCount > 0 ? "red" : p.rfiOpenCount > 0 ? "orange" : "green"} />
+                        <StatCard label="Punch Items" value={p.punchOpenCount}
+                          sub={p.punchScheduleImpact > 0 ? `${p.punchScheduleImpact}d schedule impact` : "no schedule impact"}
+                          tone={p.punchScheduleImpact > 0 ? "red" : p.punchOpenCount > 0 ? "orange" : "green"} />
+                        <StatCard label="Change Events" value={p.changeEventCount}
+                          sub="open / pending"
+                          tone={p.changeEventCount > 0 ? "orange" : "green"} />
+                        <StatCard label="Insp. Deficiencies" value={p.inspectionDeficient}
+                          sub="failing items"
+                          tone={p.inspectionDeficient > 0 ? "red" : "green"} />
+                        <StatCard label="Observations" value={p.observationOpenCount}
+                          sub="open items"
+                          tone={p.observationOpenCount > 0 ? "orange" : "green"} />
+                      </div>
+                    </div>
+
+                    {/* Contract status */}
+                    <div className="fs-field-group fs-full">
+                      <div className="fs-section-head">Contract Status <ProcoreBadge tooltip="Synced from Procore prime contract and work order contract webhooks" /></div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <div style={{ background: p.primeContractExecuted ? "#f0fdf4" : "#fef9f0", border: `1px solid ${p.primeContractExecuted ? "#bbf7d0" : "#fde68a"}`, borderRadius: 8, padding: "12px 14px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: p.primeContractExecuted ? "#16a34a" : "#92400e", marginBottom: 4 }}>Prime Contract</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: p.primeContractExecuted ? "#16a34a" : "#92400e" }}>{p.primeContractExecuted ? "✓ Executed" : "Not Executed"}</div>
+                          {p.primeContractDate && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Signed {p.primeContractDate}</div>}
+                        </div>
+                        <div style={{ background: p.subcontractExecuted ? "#f0fdf4" : "#fef9f0", border: `1px solid ${p.subcontractExecuted ? "#bbf7d0" : "#fde68a"}`, borderRadius: 8, padding: "12px 14px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: p.subcontractExecuted ? "#16a34a" : "#92400e", marginBottom: 4 }}>Subcontract</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: p.subcontractExecuted ? "#16a34a" : "#92400e" }}>{p.subcontractExecuted ? "✓ Executed" : "Not Executed"}</div>
+                          {p.subcontractAmount && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>${Number(p.subcontractAmount).toLocaleString()}</div>}
+                          {p.subcontractDate && <div style={{ fontSize: 12, color: "#6b7280" }}>Signed {p.subcontractDate}</div>}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           {tab === "notes" && (
             <div className="fs-section-grid">
               <div className="fs-field-group fs-full">

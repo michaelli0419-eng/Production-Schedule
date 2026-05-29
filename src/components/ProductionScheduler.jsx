@@ -2144,6 +2144,131 @@ function dateFieldHelp(job) {
   };
 }
 
+// ── Procore stat card (used in ProcoreLiveTab) ────────────────────────────────
+function ProcoreStatCard({ label, value, sub, tone }) {
+  const palettes = {
+    red:    { bg: "#fef2f2", text: "#dc2626", border: "#fee2e2" },
+    orange: { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
+    green:  { bg: "#f0fdf4", text: "#16a34a", border: "#bbf7d0" },
+    blue:   { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
+    gray:   { bg: "#f9fafb", text: "#6b7280", border: "#e5e7eb" },
+  };
+  const { bg, text, border } = palettes[tone] ?? palettes.gray;
+  return (
+    <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: text }}>{label}</span>
+      <span style={{ fontSize: 28, fontWeight: 800, color: text, lineHeight: 1 }}>{value ?? "—"}</span>
+      {sub && <span style={{ fontSize: 12, color: text, opacity: .75 }}>{sub}</span>}
+    </div>
+  );
+}
+
+// ── Procore Live tab content ───────────────────────────────────────────────────
+function ProcoreLiveTab({ job, syncing, setSyncing, syncResult, setSyncResult, updateJob }) {
+  const p = job.procore ?? {};
+  const hasData = p.rfiOpenCount || p.punchOpenCount || p.changeEventCount ||
+    p.inspectionDeficient || p.observationOpenCount || p.primeContractExecuted || p.subcontractExecuted;
+
+  async function pullFromProcore() {
+    if (!job.jobNumber) { setSyncResult({ error: "No job number set on this job." }); return; }
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("https://ixbffxowwvpzzuamvgix.supabase.co/functions/v1/procore-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_number: job.jobNumber }),
+      });
+      const data = await res.json();
+      setSyncResult(data);
+      if (data.ok) setTimeout(() => window.location.reload(), 1400);
+    } catch (e) {
+      setSyncResult({ error: e.message });
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <div className="fs-section-grid">
+      <div className="fs-field-group fs-full">
+        <div className="fs-section-head" style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            Procore Connection <ProcoreBadge tooltip="All data on this tab is synced from Procore via webhook or manual pull" />
+          </span>
+          <button onClick={pullFromProcore} disabled={syncing}
+            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 7, border: "1px solid #e55a2b", background: syncing ? "#f3f4f6" : "#fff4f0", color: "#e55a2b", fontWeight: 700, cursor: syncing ? "not-allowed" : "pointer" }}>
+            {syncing ? "⟳ Pulling…" : "⬇ Pull from Procore"}
+          </button>
+        </div>
+
+        {syncResult && (
+          <div style={{ padding: "10px 14px", borderRadius: 8, fontSize: 13,
+            background: syncResult.ok ? "#f0fdf4" : "#fef2f2",
+            border: `1px solid ${syncResult.ok ? "#bbf7d0" : "#fecaca"}`,
+            color: syncResult.ok ? "#15803d" : "#dc2626" }}>
+            {syncResult.ok ? (
+              <>✓ Synced from <strong>{syncResult.procore_project?.name}</strong> — {syncResult.synced?.submittals} submittals · {syncResult.synced?.rfis} RFIs · {syncResult.synced?.punches} punch items · {syncResult.synced?.changeEvents} change events · {syncResult.synced?.inspections} inspections · {syncResult.synced?.observations} observations <span style={{ color: "#6b7280" }}>Refreshing…</span></>
+            ) : <>✗ {syncResult.error}</>}
+          </div>
+        )}
+
+        <label className="fs-label">Procore Project ID
+          <input className="fs-input" type="number" value={p.projectId ?? ""}
+            placeholder="Enter Procore project ID (optional — job number match is automatic)"
+            onChange={(e) => updateJob({ procore_project_id: e.target.value ? Number(e.target.value) : null })} />
+          <small style={{ color: "#9ca3af", marginTop: 2 }}>Webhooks auto-match by job number first. Set this only if job numbers differ.</small>
+        </label>
+      </div>
+
+      {!hasData ? (
+        <div className="fs-field-group fs-full">
+          <p style={{ color: "#9ca3af", fontSize: 13, padding: "8px 0" }}>
+            No Procore data synced yet. Click <strong>⬇ Pull from Procore</strong> to import all existing RFIs, submittals, punch items, inspections, and more.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="fs-field-group fs-full">
+            <div className="fs-section-head">Live Counters</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+              <ProcoreStatCard label="Open RFIs" value={p.rfiOpenCount}
+                sub={p.rfiOverdueCount > 0 ? `${p.rfiOverdueCount} overdue` : "none overdue"}
+                tone={p.rfiOverdueCount > 0 ? "red" : p.rfiOpenCount > 0 ? "orange" : "green"} />
+              <ProcoreStatCard label="Punch Items" value={p.punchOpenCount}
+                sub={p.punchScheduleImpact > 0 ? `${p.punchScheduleImpact}d schedule impact` : "no impact"}
+                tone={p.punchScheduleImpact > 0 ? "red" : p.punchOpenCount > 0 ? "orange" : "green"} />
+              <ProcoreStatCard label="Change Events" value={p.changeEventCount}
+                sub="open / pending" tone={p.changeEventCount > 0 ? "orange" : "green"} />
+              <ProcoreStatCard label="Insp. Deficiencies" value={p.inspectionDeficient}
+                sub="failing items" tone={p.inspectionDeficient > 0 ? "red" : "green"} />
+              <ProcoreStatCard label="Observations" value={p.observationOpenCount}
+                sub="open items" tone={p.observationOpenCount > 0 ? "orange" : "green"} />
+            </div>
+          </div>
+
+          <div className="fs-field-group fs-full">
+            <div className="fs-section-head">Contract Status <ProcoreBadge tooltip="Synced from Procore prime contract and work order contract webhooks" /></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {[
+                { label: "Prime Contract", done: p.primeContractExecuted, date: p.primeContractDate, amount: null },
+                { label: "Subcontract",    done: p.subcontractExecuted,   date: p.subcontractDate,   amount: p.subcontractAmount },
+              ].map(({ label, done, date, amount }) => (
+                <div key={label} style={{ background: done ? "#f0fdf4" : "#fef9f0", border: `1px solid ${done ? "#bbf7d0" : "#fde68a"}`, borderRadius: 8, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: done ? "#16a34a" : "#92400e", marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: done ? "#16a34a" : "#92400e" }}>{done ? "✓ Executed" : "Not Executed"}</div>
+                  {amount && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>${Number(amount).toLocaleString()}</div>}
+                  {date && <div style={{ fontSize: 12, color: "#6b7280" }}>Signed {date}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Procore sync badge ────────────────────────────────────────────────────────
 function ProcoreBadge({ tooltip }) {
   return (
@@ -2169,6 +2294,8 @@ const FS_TABS = [
 
 function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
   const [tab, setTab] = useState("overview");
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
   if (!job) return null;
   const u = (patch) => updateJob(job.id, patch);
   const m = (field, val) => updateMasterField(job.id, field, val);
@@ -2397,142 +2524,17 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
             </div>
           )}
 
-          {/* ── Notes ── */}
           {/* ── Procore Live ── */}
-          {tab === "procore" && (() => {
-            const p = job.procore ?? {};
-            const hasData = p.rfiOpenCount || p.punchOpenCount || p.changeEventCount ||
-              p.inspectionDeficient || p.observationOpenCount || p.primeContractExecuted || p.subcontractExecuted;
-            const [syncing, setSyncing] = useState(false);
-            const [syncResult, setSyncResult] = useState(null);
-
-            async function pullFromProcore() {
-              if (!job.jobNumber) { setSyncResult({ error: "No job number set on this job." }); return; }
-              setSyncing(true);
-              setSyncResult(null);
-              try {
-                const res = await fetch(
-                  "https://ixbffxowwvpzzuamvgix.supabase.co/functions/v1/procore-sync",
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ job_number: job.jobNumber }),
-                  }
-                );
-                const data = await res.json();
-                setSyncResult(data);
-                if (data.ok) {
-                  // trigger a page-level refresh so counters update live
-                  setTimeout(() => window.location.reload(), 1200);
-                }
-              } catch (e) {
-                setSyncResult({ error: e.message });
-              } finally {
-                setSyncing(false);
-              }
-            }
-
-            function StatCard({ label, value, sub, tone }) {
-              const colors = { red: "#fef2f2/#dc2626/#fee2e2", orange: "#fff7ed/#ea580c/#fed7aa", green: "#f0fdf4/#16a34a/#bbf7d0", blue: "#eff6ff/#2563eb/#bfdbfe", gray: "#f9fafb/#6b7280/#e5e7eb" };
-              const [bg, text, border] = (colors[tone] || colors.gray).split("/");
-              return (
-                <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: text }}>{label}</span>
-                  <span style={{ fontSize: 28, fontWeight: 800, color: text, lineHeight: 1 }}>{value ?? "—"}</span>
-                  {sub && <span style={{ fontSize: 12, color: text, opacity: .75 }}>{sub}</span>}
-                </div>
-              );
-            }
-
-            return (
-              <div className="fs-section-grid">
-                {/* Procore project link */}
-                <div className="fs-field-group fs-full">
-                  <div className="fs-section-head" style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      Procore Connection <ProcoreBadge tooltip="All data on this tab is synced automatically from Procore via webhook" />
-                    </span>
-                    <button
-                      onClick={pullFromProcore}
-                      disabled={syncing}
-                      style={{ fontSize: 12, padding: "5px 14px", borderRadius: 7, border: "1px solid #e55a2b", background: syncing ? "#f3f4f6" : "#fff4f0", color: "#e55a2b", fontWeight: 700, cursor: syncing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                    >
-                      {syncing ? "⟳ Pulling…" : "⬇ Pull from Procore"}
-                    </button>
-                  </div>
-                  {syncResult && (
-                    <div style={{ padding: "10px 14px", borderRadius: 8, background: syncResult.ok ? "#f0fdf4" : "#fef2f2", border: `1px solid ${syncResult.ok ? "#bbf7d0" : "#fecaca"}`, fontSize: 13, color: syncResult.ok ? "#15803d" : "#dc2626" }}>
-                      {syncResult.ok ? (
-                        <>
-                          ✓ Synced from <strong>{syncResult.procore_project?.name}</strong> — {" "}
-                          {syncResult.synced?.submittals} submittals · {syncResult.synced?.rfis} RFIs · {syncResult.synced?.punches} punch items · {syncResult.synced?.changeEvents} change events · {syncResult.synced?.inspections} inspections · {syncResult.synced?.observations} observations
-                          <span style={{ color: "#6b7280", marginLeft: 8 }}>Refreshing…</span>
-                        </>
-                      ) : (
-                        <>✗ {syncResult.error}</>
-                      )}
-                    </div>
-                  )}
-                  <label className="fs-label">Procore Project ID
-                    <input className="fs-input" type="number" value={p.projectId ?? ""}
-                      placeholder="Enter Procore project ID to enable matching"
-                      onChange={(e) => u({ procore_project_id: e.target.value ? Number(e.target.value) : null })} />
-                    <small style={{ color: "#9ca3af", marginTop: 2 }}>Set this to link the job to a Procore project. Webhooks will auto-match by job number first, then this ID.</small>
-                  </label>
-                </div>
-
-                {!hasData ? (
-                  <div className="fs-field-group fs-full">
-                    <p style={{ color: "#9ca3af", fontSize: 13, padding: "16px 0" }}>
-                      No Procore events synced yet for this job. Once Procore sends webhooks (RFIs, punch items, inspections, etc.) they will appear here automatically.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Live counters grid */}
-                    <div className="fs-field-group fs-full">
-                      <div className="fs-section-head">Live Counters</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
-                        <StatCard label="Open RFIs" value={p.rfiOpenCount}
-                          sub={p.rfiOverdueCount > 0 ? `${p.rfiOverdueCount} overdue` : "none overdue"}
-                          tone={p.rfiOverdueCount > 0 ? "red" : p.rfiOpenCount > 0 ? "orange" : "green"} />
-                        <StatCard label="Punch Items" value={p.punchOpenCount}
-                          sub={p.punchScheduleImpact > 0 ? `${p.punchScheduleImpact}d schedule impact` : "no schedule impact"}
-                          tone={p.punchScheduleImpact > 0 ? "red" : p.punchOpenCount > 0 ? "orange" : "green"} />
-                        <StatCard label="Change Events" value={p.changeEventCount}
-                          sub="open / pending"
-                          tone={p.changeEventCount > 0 ? "orange" : "green"} />
-                        <StatCard label="Insp. Deficiencies" value={p.inspectionDeficient}
-                          sub="failing items"
-                          tone={p.inspectionDeficient > 0 ? "red" : "green"} />
-                        <StatCard label="Observations" value={p.observationOpenCount}
-                          sub="open items"
-                          tone={p.observationOpenCount > 0 ? "orange" : "green"} />
-                      </div>
-                    </div>
-
-                    {/* Contract status */}
-                    <div className="fs-field-group fs-full">
-                      <div className="fs-section-head">Contract Status <ProcoreBadge tooltip="Synced from Procore prime contract and work order contract webhooks" /></div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        <div style={{ background: p.primeContractExecuted ? "#f0fdf4" : "#fef9f0", border: `1px solid ${p.primeContractExecuted ? "#bbf7d0" : "#fde68a"}`, borderRadius: 8, padding: "12px 14px" }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: p.primeContractExecuted ? "#16a34a" : "#92400e", marginBottom: 4 }}>Prime Contract</div>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: p.primeContractExecuted ? "#16a34a" : "#92400e" }}>{p.primeContractExecuted ? "✓ Executed" : "Not Executed"}</div>
-                          {p.primeContractDate && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Signed {p.primeContractDate}</div>}
-                        </div>
-                        <div style={{ background: p.subcontractExecuted ? "#f0fdf4" : "#fef9f0", border: `1px solid ${p.subcontractExecuted ? "#bbf7d0" : "#fde68a"}`, borderRadius: 8, padding: "12px 14px" }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: p.subcontractExecuted ? "#16a34a" : "#92400e", marginBottom: 4 }}>Subcontract</div>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: p.subcontractExecuted ? "#16a34a" : "#92400e" }}>{p.subcontractExecuted ? "✓ Executed" : "Not Executed"}</div>
-                          {p.subcontractAmount && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>${Number(p.subcontractAmount).toLocaleString()}</div>}
-                          {p.subcontractDate && <div style={{ fontSize: 12, color: "#6b7280" }}>Signed {p.subcontractDate}</div>}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })()}
+          {tab === "procore" && (
+            <ProcoreLiveTab
+              job={job}
+              syncing={syncing}
+              setSyncing={setSyncing}
+              syncResult={syncResult}
+              setSyncResult={setSyncResult}
+              updateJob={u}
+            />
+          )}
 
           {tab === "notes" && (
             <div className="fs-section-grid">

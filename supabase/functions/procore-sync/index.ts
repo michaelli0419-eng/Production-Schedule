@@ -123,6 +123,7 @@ async function findProcoreProject(companyId: number, jobNumber: string, procoreP
 
   // Search by project number
   const url = new URL(`${PROCORE_BASE}/rest/v1.0/projects`);
+  url.searchParams.set("company_id", String(companyId));
   url.searchParams.set("filters[project_number]", jobNumber);
   url.searchParams.set("per_page", "10");
   const res = await fetch(url.toString(), {
@@ -130,7 +131,10 @@ async function findProcoreProject(companyId: number, jobNumber: string, procoreP
   });
   if (!res.ok) return null;
   const projects = await res.json();
-  return projects.find((p: any) => String(p.number) === String(jobNumber)) ?? projects[0] ?? null;
+  // Procore field is project_number (not number) — also handle "11279 Grandview ES" format
+  return projects.find((p: any) =>
+    String(p.project_number ?? "").startsWith(jobNumber)
+  ) ?? projects[0] ?? null;
 }
 
 // ── Sync each resource type ───────────────────────────────────────────────────
@@ -156,7 +160,7 @@ async function syncSubmittals(companyId: number, projectId: number, jobId: strin
     type:          "submittal",
     title:         s.title ?? s.spec_section?.description ?? "Procore Submittal",
     rev_number:    s.revision ?? 1,
-    status:        statusMap[s.status?.toLowerCase()] ?? "not_sent",
+    status:        statusMap[str(s.status)?.toLowerCase() ?? ""] ?? "not_sent",
     sent_date:     d(s.submitted_at),
     received_date: d(s.received_at),
     approved_date: d(s.approved_at),
@@ -173,7 +177,7 @@ async function syncSubmittals(companyId: number, projectId: number, jobId: strin
   const patch: any = {};
   if (latest.submitted_at) patch.master_submittals_out      = d(latest.submitted_at);
   if (latest.received_at)  patch.master_submittals_received = d(latest.received_at);
-  if (latest.status)       patch.master_dsa_status          = dsaMap[latest.status?.toLowerCase()] ?? latest.status;
+  if (latest.status)       patch.master_dsa_status          = dsaMap[str(latest.status)?.toLowerCase() ?? ""] ?? str(latest.status);
   if (latest.approved_at)  patch.master_dsa_approval        = d(latest.approved_at);
   if (Object.keys(patch).length) await supabase.from("jobs").update(patch).eq("id", jobId);
 

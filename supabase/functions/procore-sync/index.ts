@@ -34,7 +34,7 @@ async function getToken(): Promise<string> {
 
   const res = await fetch("https://login.procore.com/oauth/token", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
     body: JSON.stringify({
       grant_type:    "client_credentials",
       client_id:     CLIENT_ID,
@@ -336,7 +336,7 @@ async function refreshJobCounts(jobId: string) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
-      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type" },
+      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info" },
     });
   }
 
@@ -430,7 +430,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       procore_project: { id: project.id, name: project.name },
       synced: { submittals, rfis, punches, changeEvents, inspections, observations },
-    }), { headers: { "Content-Type": "application/json" } });
+    }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
 
   } catch (err: any) {
     console.error("Sync error:", err.message, err.stack);

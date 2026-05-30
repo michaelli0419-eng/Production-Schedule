@@ -6,11 +6,12 @@ import { useExecutiveMetrics } from './hooks/useExecutiveMetrics.js';
 export default function ExecutiveDashboard({ range }) {
   const { data, isLoading, error } = useExecutiveMetrics(range);
 
-  if (isLoading) return <div>Loading executive dashboard...</div>;
-  if (error) return <div style={{ color: '#b91c1c' }}>Failed to load executive dashboard.</div>;
+  if (isLoading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading executive dashboard…</div>;
+  if (error) return <div style={{ padding: 24, color: '#b91c1c' }}>Failed to load executive dashboard.</div>;
 
-  const series = (data.jobs || []).slice(0, 12).map((j) => Number(j.progress || 0));
-  const byStatus = Object.entries((data.jobs || []).reduce((acc, j) => { acc[j.status] = (acc[j.status] || 0) + 1; return acc; }, {}))
+  const jobs = data?.jobs || [];
+  const series = jobs.slice(0, 12).map((j) => Number(j.progress || 0));
+  const byStatus = Object.entries(jobs.reduce((acc, j) => { acc[j.status] = (acc[j.status] || 0) + 1; return acc; }, {}))
     .map(([label, value]) => ({ label, value }));
 
   return (

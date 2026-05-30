@@ -207,25 +207,6 @@ export default function CrmDashboard() {
     staleTime: 5 * 60 * 1000,
   });
 
-  if (isLoading) return <LoadingSkeleton />;
-
-  if (error) {
-    return (
-      <div
-        style={{
-          padding: 24,
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: 10,
-          color: "#991b1b",
-          fontSize: "0.875rem",
-        }}
-      >
-        Failed to load CRM dashboard: {error.message}
-      </div>
-    );
-  }
-
   const {
     availableYears = [],
     totalPipelineValue = 0,
@@ -237,10 +218,21 @@ export default function CrmDashboard() {
     dealsByBdm = [],
   } = data ?? {};
 
+  // Must be before any early returns — Rules of Hooks
   const yearOptions = useMemo(() => {
     const values = new Set([currentYear, ...availableYears]);
     return ["all", ...[...values].sort((a, b) => b - a).map((y) => String(y))];
   }, [availableYears, currentYear]);
+
+  if (isLoading) return <LoadingSkeleton />;
+
+  if (error) {
+    return (
+      <div style={{ padding: 24, backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, color: "#991b1b", fontSize: "0.875rem" }}>
+        Failed to load CRM dashboard: {error.message}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>

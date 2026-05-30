@@ -20,20 +20,26 @@ function addWeeks(date, n) {
 export default function CapacityDashboard() {
   const { data, isLoading, error } = useCapacityMetrics();
 
-  if (isLoading) return <div>Loading capacity dashboard...</div>;
-  if (error) return <div style={{ color: '#b91c1c' }}>Failed to load capacity dashboard.</div>;
+  if (isLoading) return <div style={{ padding: 24, color: '#6b7280' }}>Loading capacity dashboard…</div>;
+  if (error) return <div style={{ padding: 24, color: '#b91c1c' }}>Failed to load capacity dashboard.</div>;
+  if (!data) return null;
+
+  const rules = data.rules || [];
+  const departments = data.departments || [];
+  const steps = data.steps || [];
 
   const latestRuleByDept = new Map();
-  for (const r of data.rules) if (!latestRuleByDept.has(r.department_id)) latestRuleByDept.set(r.department_id, r);
+  for (const r of rules) if (!latestRuleByDept.has(r.department_id)) latestRuleByDept.set(r.department_id, r);
 
-  const weeks = Array.from({ length: 13 }).map((_, i) => addWeeks(startOfWeek(new Date()), i));
+  const now = new Date();
+  const weeks = Array.from({ length: 13 }).map((_, i) => addWeeks(startOfWeek(now), i));
 
-  const rows = data.departments.map((d) => {
+  const rows = departments.map((d) => {
     const rule = latestRuleByDept.get(d.id);
     const cap = Number(rule?.shifts_per_day || 1) * Number(rule?.hours_per_shift || 8) * Number(rule?.days_per_week || 5) * Number(rule?.crew_size || 1);
     const values = weeks.map((w) => {
       const we = addWeeks(w, 1);
-      const demand = data.steps
+      const demand = steps
         .filter((s) => s.department_id === d.id)
         .filter((s) => new Date(s.planned_start) < we && new Date(s.planned_end || s.planned_start) >= w)
         .reduce((sum, s) => sum + Number(s.planned_hours || 0), 0);
@@ -48,7 +54,7 @@ export default function CapacityDashboard() {
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
         <MetricCard label="Departments" value={String(rows.length)} />
-        <MetricCard label="Planned Steps" value={String(data.steps.length)} />
+        <MetricCard label="Planned Steps" value={String(steps.length)} />
         <MetricCard label="Max Utilization" value={`${maxUtil}%`} />
       </div>
 

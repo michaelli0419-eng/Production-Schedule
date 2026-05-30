@@ -24,6 +24,16 @@ const CLIENT_ID      = Deno.env.get("PROCORE_CLIENT_ID")!;
 const CLIENT_SECRET  = Deno.env.get("PROCORE_CLIENT_SECRET")!;
 const SCM_COMPANY_ID = 562949953440765; // Silver Creek Modular
 
+const CORS_HEADERS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
+};
+function ok200(data: any) {
+  return new Response(JSON.stringify(data), { headers: CORS_HEADERS });
+}
+
 // ── OAuth token (client credentials) ─────────────────────────────────────────
 
 let _token: string | null = null;
@@ -336,56 +346,35 @@ async function refreshJobCounts(jobId: string) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
-      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info" },
+      headers: CORS_HEADERS,
     });
   }
 
   let body: any;
-  try { body = await req.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
+  try { body = await req.json(); } catch { return ok200({ ok: false, error: "Invalid JSON" }); }
 
   const jobNumber: string   = body.job_number ? String(body.job_number) : "";
   const explicitProcoreId   = body.procore_project_id ? Number(body.procore_project_id) : undefined;
 
   if (!jobNumber && !explicitProcoreId) {
-    return new Response(JSON.stringify({ error: "Provide job_number or procore_project_id" }), { status: 400 });
+    return ok200({ ok: false, error: "Provide job_number or procore_project_id" });
   }
 
   try {
-    const writeProcoreLog = async (entry: any) => {
-      try {
-        await supabase.from("procore_sync_log").insert(entry);
-      } catch (_err) {
-        // Keep sync resilient even if logging table write fails
-      }
-    };
-
     // 1. Find our SCM job
     const scmQuery = jobNumber
       ? supabase.from("jobs").select("id, procore_project_id").eq("job_number", jobNumber).maybeSingle()
       : supabase.from("jobs").select("id, procore_project_id").eq("procore_project_id", explicitProcoreId!).maybeSingle();
     const { data: scmJob } = await scmQuery;
     if (!scmJob) {
-      await writeProcoreLog({
-        direction: "inbound",
-        operation: "pull_project",
-        status: "failed",
-        error_message: `No SCM job found for job_number=${jobNumber}`,
-      });
-      return new Response(JSON.stringify({ error: `No SCM job found for job_number=${jobNumber}` }), { status: 404 });
+      return ok200({ ok: false, error: `No SCM job found for job_number=${jobNumber}` });
     }
 
     // 2. Find Procore project (company ID is hardcoded — Silver Creek Modular)
     const companyId = SCM_COMPANY_ID;
     const project   = await findProcoreProject(companyId, jobNumber, explicitProcoreId ?? scmJob.procore_project_id ?? undefined);
     if (!project) {
-      await writeProcoreLog({
-        direction: "inbound",
-        operation: "pull_project",
-        status: "failed",
-        job_id: scmJob.id,
-        error_message: `No Procore project found for project number ${jobNumber}`,
-      });
-      return new Response(JSON.stringify({ error: `No Procore project found for project number ${jobNumber}` }), { status: 404 });
+      return ok200({ ok: false, error: `No Procore project found for project number ${jobNumber} — this job may not exist in Procore yet.` });
     }
 
     console.log(`Syncing Procore project ${project.id} (${project.name}) → SCM job ${scmJob.id}`);
@@ -426,14 +415,14 @@ Deno.serve(async (req: Request) => {
       user_name:   "Manual Sync",
     });
 
-    return new Response(JSON.stringify({
+    return ok200({
       ok: true,
       procore_project: { id: project.id, name: project.name },
       synced: { submittals, rfis, punches, changeEvents, inspections, observations },
-    }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+    });
 
   } catch (err: any) {
     console.error("Sync error:", err.message, err.stack);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    return ok200({ ok: false, error: err.message });
   }
 });

@@ -23,20 +23,23 @@ body {
 .ps-login-shell {
   min-height: 100%;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 480px 1fr;
   overflow: auto;
 }
 @media (max-width: 860px) {
-  .ps-login-shell { grid-template-columns: 1fr; }
+  .ps-login-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
 }
 
 /* Left brand panel */
 .ps-login-brand-panel {
-  background: linear-gradient(160deg, #0f172a 0%, #1a1a2e 50%, #0f172a 100%);
+  background: linear-gradient(175deg, #101827 0%, #111827 55%, #0f172a 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 44px;
+  padding: 56px 48px;
   position: relative;
   overflow: hidden;
 }
@@ -45,39 +48,76 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 60% at 20% 80%, rgba(249,115,22,.20) 0%, transparent 70%),
-    radial-gradient(ellipse 60% 50% at 80% 20%, rgba(16,185,129,.10) 0%, transparent 60%);
+    radial-gradient(ellipse 70% 55% at 15% 85%, rgba(242,122,33,.22) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 45% at 85% 15%, rgba(242,122,33,.10) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 50% 50%, rgba(15,23,42,.50) 0%, transparent 80%);
   pointer-events: none;
 }
-@media (max-width: 860px) { .ps-login-brand-panel { display: none; } }
+.ps-login-brand-panel::after {
+  content: "";
+  position: absolute;
+  bottom: -60px;
+  right: -60px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  border: 1px solid rgba(242,122,33,.12);
+  pointer-events: none;
+}
+@media (max-width: 860px) {
+  .ps-login-brand-panel {
+    padding: 32px 28px 28px;
+    min-height: 0;
+  }
+}
 
 .ps-login-brand-inner {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 400px;
+  gap: 24px;
+  max-width: 380px;
+  width: 100%;
 }
 
 .ps-login-scm-logo {
-  height: 48px;
+  height: 120px;
   width: auto;
   object-fit: contain;
+  object-position: left center;
   margin-bottom: 4px;
+  filter: brightness(0) invert(1);
+}
+@media (max-width: 860px) {
+  .ps-login-scm-logo {
+    height: 64px;
+    object-position: center;
+    margin: 0 auto;
+  }
+  .ps-login-brand-inner {
+    align-items: center;
+    text-align: center;
+    gap: 14px;
+  }
 }
 
 .ps-login-brand-inner h1 {
   color: #f8fafc;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 900;
-  line-height: 1.15;
-  letter-spacing: -0.4px;
+  line-height: 1.18;
+  letter-spacing: -0.5px;
+}
+@media (max-width: 860px) {
+  .ps-login-brand-inner h1 {
+    font-size: 20px;
+  }
 }
 
 .ps-login-brand-inner > p {
   color: #94a3b8;
-  font-size: 14px;
+  font-size: 13.5px;
   line-height: 1.65;
   max-width: 340px;
 }
@@ -86,46 +126,88 @@ body {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-top: 8px;
+  gap: 13px;
+  margin-top: 4px;
+}
+@media (max-width: 860px) {
+  .ps-login-features {
+    display: none;
+  }
 }
 .ps-login-features li {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 11px;
   color: #cbd5e1;
   font-size: 13px;
   line-height: 1.5;
 }
+
 .ps-login-feature-icon {
   flex-shrink: 0;
-  font-size: 14px;
-  color: #FB923C;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(242,122,33,.18);
+  border: 1px solid rgba(242,122,33,.32);
+  color: #f27a21;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 1px;
 }
 
 .ps-login-brand-footer {
-  margin-top: 12px;
+  margin-top: 8px;
   padding-top: 18px;
-  border-top: 1px solid rgba(255,255,255,.1);
+  border-top: 1px solid rgba(255,255,255,.08);
   color: #475569;
   font-size: 11px;
+  line-height: 1.6;
+}
+@media (max-width: 860px) {
+  .ps-login-brand-footer {
+    display: none;
+  }
 }
 
 /* Right form panel */
 .ps-login-form-panel {
-  background: #f8fafc;
+  background: #f1f5f9;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 36px;
+  padding: 56px 36px;
+  min-height: 100vh;
+}
+@media (max-width: 860px) {
+  .ps-login-form-panel {
+    padding: 32px 20px 48px;
+    min-height: 0;
+    align-items: flex-start;
+  }
 }
 
 .ps-login-card {
-  width: min(100%, 400px);
+  width: min(100%, 440px);
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 3px rgba(15,23,42,.07),
+    0 6px 24px rgba(15,23,42,.09),
+    0 16px 48px rgba(15,23,42,.06);
+  padding: 40px 36px 36px;
   display: flex;
   flex-direction: column;
   gap: 22px;
+}
+@media (max-width: 480px) {
+  .ps-login-card {
+    padding: 28px 20px 24px;
+    border-radius: 12px;
+    gap: 18px;
+  }
 }
 
 .ps-login-card-head {
@@ -133,30 +215,46 @@ body {
   flex-direction: column;
   gap: 6px;
 }
+
 .ps-login-card-eyebrow {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 800;
-  letter-spacing: .08em;
+  letter-spacing: .10em;
   text-transform: uppercase;
-  color: #F97316;
+  color: #f27a21;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
+.ps-login-card-eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: #f27a21;
+  flex-shrink: 0;
+}
+
 .ps-login-card-head h2 {
   font-size: 26px;
   font-weight: 900;
   color: #0f172a;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.4px;
   line-height: 1.15;
+  margin-top: 2px;
 }
+
 .ps-login-card-sub {
   font-size: 13px;
   color: #64748b;
-  line-height: 1.55;
+  line-height: 1.6;
   margin-top: 2px;
 }
 
 .ps-login-form {
   display: grid;
-  gap: 14px;
+  gap: 15px;
 }
 
 .ps-login-form label {
@@ -164,96 +262,159 @@ body {
   gap: 6px;
   color: #334155;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .ps-login-form input {
-  height: 42px;
-  padding: 0 13px;
+  height: 44px;
+  padding: 0 14px;
   border: 1.5px solid #e2e8f0;
   border-radius: 8px;
-  background: #fff;
+  background: #f8fafc;
   color: #0f172a;
   font: inherit;
   font-size: 14px;
-  transition: border-color .15s, box-shadow .15s;
-  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  transition: border-color .15s, box-shadow .15s, background .15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04) inset;
+}
+.ps-login-form input:hover {
+  border-color: #cbd5e1;
+  background: #fff;
 }
 .ps-login-form input:focus {
   outline: none;
-  border-color: #F97316;
-  box-shadow: 0 0 0 3px rgba(249,115,22,.15);
+  background: #fff;
+  border-color: #f27a21;
+  box-shadow: 0 0 0 3px rgba(242,122,33,.16), 0 1px 2px rgba(0,0,0,.04) inset;
 }
-.ps-login-form input::placeholder { color: #94a3b8; }
+.ps-login-form input::placeholder {
+  color: #94a3b8;
+}
+
+.ps-login-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ps-login-error::before {
+  content: "!";
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fecaca;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
 
 .ps-login-submit {
-  height: 44px;
+  height: 46px;
   border: 0;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #F97316, #EA6C09);
+  border-radius: 9px;
+  background: linear-gradient(135deg, #f27a21 0%, #e86d14 60%, #d4600d 100%);
   color: #fff;
   cursor: pointer;
   font: inherit;
   font-size: 14px;
   font-weight: 800;
-  letter-spacing: .02em;
-  box-shadow: 0 4px 14px rgba(249,115,22,.40);
-  transition: opacity .15s, box-shadow .15s;
+  letter-spacing: .03em;
+  box-shadow:
+    0 4px 14px rgba(242,122,33,.42),
+    0 1px 3px rgba(242,122,33,.30);
+  transition: opacity .15s, box-shadow .15s, transform .1s;
   margin-top: 4px;
+  position: relative;
+  overflow: hidden;
 }
-.ps-login-submit:hover { opacity: .92; box-shadow: 0 6px 18px rgba(249,115,22,.48); }
-.ps-login-submit:disabled { opacity: .6; cursor: not-allowed; }
+.ps-login-submit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.10) 0%, transparent 50%);
+  pointer-events: none;
+}
+.ps-login-submit:hover:not(:disabled) {
+  opacity: .93;
+  box-shadow:
+    0 6px 20px rgba(242,122,33,.50),
+    0 1px 3px rgba(242,122,33,.30);
+  transform: translateY(-1px);
+}
+.ps-login-submit:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow:
+    0 2px 8px rgba(242,122,33,.38),
+    0 1px 2px rgba(242,122,33,.25);
+}
+.ps-login-submit:disabled {
+  opacity: .58;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .ps-login-spinner {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 9px;
 }
 .ps-login-spinner span {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255,255,255,.4);
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255,255,255,.35);
   border-top-color: #fff;
   border-radius: 50%;
-  animation: ps-spin .7s linear infinite;
+  animation: ps-spin .75s linear infinite;
   flex-shrink: 0;
 }
 @keyframes ps-spin { to { transform: rotate(360deg); } }
 
-.ps-login-error {
-  padding: 10px 13px;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .ps-login-note {
   display: grid;
-  gap: 3px;
-  padding: 13px 14px;
+  gap: 4px;
+  padding: 13px 15px;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
+  border-radius: 9px;
+  background: #f8fafc;
   color: #64748b;
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.55;
 }
 .ps-login-note strong {
   color: #334155;
-  font-size: 11px;
-  font-weight: 800;
-  margin-bottom: 2px;
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-bottom: 1px;
+  display: block;
 }
 
 .ps-login-help {
   text-align: center;
-  font-size: 11px;
+  font-size: 11.5px;
   color: #94a3b8;
+  line-height: 1.6;
+}
+.ps-login-help a {
+  color: #f27a21;
+  text-decoration: none;
+  font-weight: 600;
+}
+.ps-login-help a:hover {
+  text-decoration: underline;
 }
 
 /* ── Shell ────────────────────────────────────────────────────────────────── */

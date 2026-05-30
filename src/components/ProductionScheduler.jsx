@@ -2055,20 +2055,15 @@ function ProcoreLiveTab({ job, syncing, setSyncing, syncResult, setSyncResult, u
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch("https://ixbffxowwvpzzuamvgix.supabase.co/functions/v1/procore-sync", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4YmZmeG93d3Zwenp1YW12Z2l4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5MDkxNjcsImV4cCI6MjA5NTQ4NTE2N30.kVfjwf3rWZZkUjms4dj-nAQzYsMy5_Hbz0_Ggzu0aA0",
-          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4YmZmeG93d3Zwenp1YW12Z2l4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5MDkxNjcsImV4cCI6MjA5NTQ4NTE2N30.kVfjwf3rWZZkUjms4dj-nAQzYsMy5_Hbz0_Ggzu0aA0",
-        },
-        body: JSON.stringify({ job_number: job.jobNumber }),
+      // Use supabaseClient.functions.invoke — handles auth + CORS automatically
+      const { data, error } = await supabaseClient.functions.invoke("procore-sync", {
+        body: { job_number: job.jobNumber },
       });
-      const data = await res.json();
+      if (error) throw error;
       setSyncResult(data);
-      if (data.ok) setTimeout(() => window.location.reload(), 1400);
+      if (data?.ok) setTimeout(() => window.location.reload(), 1400);
     } catch (e) {
-      setSyncResult({ error: e.message });
+      setSyncResult({ error: e.message ?? String(e) });
     } finally {
       setSyncing(false);
     }

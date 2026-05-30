@@ -19,9 +19,10 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const PROCORE_BASE = "https://api.procore.com";
-const CLIENT_ID     = Deno.env.get("PROCORE_CLIENT_ID")!;
-const CLIENT_SECRET = Deno.env.get("PROCORE_CLIENT_SECRET")!;
+const PROCORE_BASE   = "https://api.procore.com";
+const CLIENT_ID      = Deno.env.get("PROCORE_CLIENT_ID")!;
+const CLIENT_SECRET  = Deno.env.get("PROCORE_CLIENT_SECRET")!;
+const SCM_COMPANY_ID = 562949953440765; // Silver Creek Modular
 
 // ── OAuth token (client credentials) ─────────────────────────────────────────
 
@@ -346,19 +347,40 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const writeProcoreLog = async (entry: any) => {
+      try {
+        await supabase.from("procore_sync_log").insert(entry);
+      } catch (_err) {
+        // Keep sync resilient even if logging table write fails
+      }
+    };
+
     // 1. Find our SCM job
     const scmQuery = jobNumber
       ? supabase.from("jobs").select("id, procore_project_id").eq("job_number", jobNumber).maybeSingle()
       : supabase.from("jobs").select("id, procore_project_id").eq("procore_project_id", explicitProcoreId!).maybeSingle();
     const { data: scmJob } = await scmQuery;
     if (!scmJob) {
+      await writeProcoreLog({
+        direction: "inbound",
+        operation: "pull_project",
+        status: "failed",
+        error_message: `No SCM job found for job_number=${jobNumber}`,
+      });
       return new Response(JSON.stringify({ error: `No SCM job found for job_number=${jobNumber}` }), { status: 404 });
     }
 
-    // 2. Get Procore company + project
-    const companyId = await getCompanyId();
+    // 2. Find Procore project (company ID is hardcoded — Silver Creek Modular)
+    const companyId = SCM_COMPANY_ID;
     const project   = await findProcoreProject(companyId, jobNumber, explicitProcoreId ?? scmJob.procore_project_id ?? undefined);
     if (!project) {
+      await writeProcoreLog({
+        direction: "inbound",
+        operation: "pull_project",
+        status: "failed",
+        job_id: scmJob.id,
+        error_message: `No Procore project found for project number ${jobNumber}`,
+      });
       return new Response(JSON.stringify({ error: `No Procore project found for project number ${jobNumber}` }), { status: 404 });
     }
 
@@ -381,6 +403,15 @@ Deno.serve(async (req: Request) => {
 
     // 4. Refresh live counters on jobs row
     await refreshJobCounts(scmJob.id);
+
+    await writeProcoreLog({
+      direction: "inbound",
+      operation: "pull_project",
+      status: "success",
+      job_id: scmJob.id,
+      external_id: String(project.id),
+      payload: { submittals, rfis, punches, changeEvents, inspections, observations },
+    });
 
     // 5. Log activity
     await supabase.from("activity_log").insert({

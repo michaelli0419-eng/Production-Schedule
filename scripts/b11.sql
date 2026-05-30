@@ -1,0 +1,16 @@
+INSERT INTO sales_pipeline_deals (id,opportunity_name,client,stage,probability,amount,weighted_amount,expected_close_date,bdm,estimator,project_manager,building_type,modules,notes,source_type,source_sheet,source_row) VALUES
+('crm-row-113','Mt. SAC','Mt. San Antonio College','award',80,733915.11,587132,NULL,'Diana',NULL,NULL,'36x60 Building B',0,'Finalizing proposal for buildings A-E. Project on hold due to personnel changes. No change','excel_import','Master Jobs',113),
+('crm-row-114','Mt. SAC','Mt. San Antonio College','award',80,787663.96,630131,NULL,'Diana',NULL,NULL,'36x60 Building C',0,'Finalizing proposal for buildings A-E. Project on hold due to personnel changes. No change','excel_import','Master Jobs',114),
+('crm-row-115','Mt. SAC','Mt. San Antonio College','award',80,743756.62,595005,NULL,'Diana',NULL,NULL,'36x60 Building D',0,'Finalizing proposal for buildings A-E. Project on hold due to personnel changes','excel_import','Master Jobs',115),
+('crm-row-116','Mt. SAC','Mt. San Antonio College','award',80,743756.62,595005,NULL,'Diana',NULL,NULL,'36x60 Building E',0,'Finalizing proposal for buildings A-E. Project on hold due to personnel changes','excel_import','Master Jobs',116),
+('crm-row-117','Freedom Crest ES','Menifee USD','estimate',35,2467455.73,863610,'2027-07-06','Diana',NULL,NULL,'(1) 72x40 & (1) 108x40',0,'2027 project','excel_import','Master Jobs',117),
+('crm-row-118','Starlight Elementary School','Beaumont USD','award',80,328527.46,262822,'2027-08-01','Diana',NULL,NULL,'Wood Foundation with ramps:
+(2) 24x40 & or 1 (1) 48x40
+(1) 12x40 restroom - Boy/Girl Staff/Staff',0,'Pricing updates requested 3/7 - pending approval to proceed','excel_import','Master Jobs',118),
+('crm-row-119','Sundance Elementary School','Beaumont USD','award',80,328527.46,262822,'2027-08-01','Diana',NULL,NULL,'Wood Foundation with ramps:
+(2) 24x40 & or 1 (1) 48x40
+(1) 12x40 restroom - Boy/Girl Staff/Staff',0,'Pricing updates requested 3/7 - pending approval to proceed','excel_import','Master Jobs',119),
+('crm-row-120','Oak Meadows ES','Menifee USD','estimate',35,2885231.43,1009831,'2026-07-06','Diana',NULL,NULL,'(1) 288x40',0,'2027 project','excel_import','Master Jobs',120),
+('crm-row-121','Stock Restrooms','Mobile Modular','lead',15,298624.09,44794,NULL,'Diana',NULL,NULL,'(2) 8’-6”x 16’-7" and (2) 8’-6”x 21-7" Restrooms',0,'Mobile Modular bidding on this - postponed','excel_import','Master Jobs',121),
+('crm-row-122','El Camino HS','Oceanside USD','lead',15,7499019.93,1124853,'2027-06-01','Diana',NULL,NULL,'Two Story - 8 classroom building, two restroom building B/G/S, weight room - 4,000 S.F., P.E. Classroom',0,'Proposal sent to Adela on 1/21/26 - on hold pending location on campus of two-story','excel_import','Master Jobs',122)
+ON CONFLICT (id) DO UPDATE SET opportunity_name=EXCLUDED.opportunity_name,client=EXCLUDED.client,stage=EXCLUDED.stage,probability=EXCLUDED.probability,amount=EXCLUDED.amount,weighted_amount=EXCLUDED.weighted_amount,expected_close_date=EXCLUDED.expected_close_date,bdm=EXCLUDED.bdm,project_manager=EXCLUDED.project_manager,building_type=EXCLUDED.building_type,notes=EXCLUDED.notes;

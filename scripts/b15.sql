@@ -1,0 +1,13 @@
+INSERT INTO sales_pipeline_deals (id,opportunity_name,client,stage,probability,amount,weighted_amount,expected_close_date,bdm,estimator,project_manager,building_type,modules,notes,source_type,source_sheet,source_row) VALUES
+('crm-11565','Bubbling ES','Palm Springs USD','handoff',95,112000,106400,'2026-07-01','Diana',NULL,'Gino','8''-6" x 16''-7" RR',0,'Project on hold','excel_import','Master Jobs',154),
+('crm-11567','Cahuilla ES','Palm Springs USD','estimate',35,112000,39200,'2026-06-01','Diana',NULL,NULL,'8’-6” x 16’-7” RR',0,'Project on hold','excel_import','Master Jobs',155),
+('crm-11571','Rancho Mirage ES','Palm Springs USD','handoff',95,112000,106400,'2025-10-13','Diana',NULL,'Gino','8’-6”x16’-7” RR',0,'Project on hold','excel_import','Master Jobs',156),
+('crm-row-157','Asher University','Asher University','lead',15,0,0,NULL,'Sandra',NULL,NULL,'(2) 168X40 Classroom and Admin Office',0,'Customer aquired property working on funding. Still waiting on city to approve new roads to site','excel_import','Master Jobs',157),
+('crm-row-158','Endovate Charter School','Endovate Charter School','lead',15,0,0,NULL,'Sandra',NULL,NULL,'(5) 36x20 Classroms and (1) 12x40TB',0,'Provided them information to submit for their board to review they 
+are finalizing whether they will proceed with current floorplans or change.','excel_import','Master Jobs',158),
+('crm-row-160','Middle School','Santa Moncia Malibu USD','lead',15,0,0,NULL,'Sandra',NULL,NULL,'Two Story (2) 96’x40’',0,'Adela still meeting with customer to review','excel_import','Master Jobs',160),
+('crm-row-161','ELAC South Gate','LA Community College District','lead',15,473556.18,71033,NULL,'Sandra',NULL,NULL,'24x40 RR/Concession',0,'Waiting for funding','excel_import','Master Jobs',161),
+('crm-row-162','East LA College Shop Bldg','LA Community College District','lead',15,888608.67,133291,NULL,'Sandra',NULL,NULL,'(4) 24x40',0,'No Start Date/Waiting on Funding','excel_import','Master Jobs',162),
+('crm-row-163','Cypress King ES','Savannah SD','lead',15,526370.88,78956,NULL,'Sandra',NULL,NULL,'(2)24’x40’ Office  and (1) 12x40',0,'Architect submitted Soils report for Ryans review. She would like him to design the foundation','excel_import','Master Jobs',163),
+('crm-row-164','Fahari Jeffers','Chula Vista USD','lead',15,0,0,NULL,'Diana',NULL,NULL,NULL,0,NULL,'excel_import','Master Jobs',164)
+ON CONFLICT (id) DO UPDATE SET opportunity_name=EXCLUDED.opportunity_name,client=EXCLUDED.client,stage=EXCLUDED.stage,probability=EXCLUDED.probability,amount=EXCLUDED.amount,weighted_amount=EXCLUDED.weighted_amount,expected_close_date=EXCLUDED.expected_close_date,bdm=EXCLUDED.bdm,project_manager=EXCLUDED.project_manager,building_type=EXCLUDED.building_type,notes=EXCLUDED.notes;

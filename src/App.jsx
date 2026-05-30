@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import ProductionScheduler from "./components/ProductionScheduler.jsx";
+﻿import { useEffect, useMemo, useState } from "react";
+import { useRoutes } from "react-router-dom";
+import { createAppRoutes } from "./app/routes.jsx";
 import { isSupabaseEnabled, supabase } from "./lib/supabase.js";
+import { useAuthStore } from "./store/authStore.js";
 
 const SESSION_KEY = "scm-production-session";
 const EMERGENCY_ADMIN = {
@@ -232,6 +234,20 @@ function LoginPage({ onLogin }) {
   );
 }
 
+function AuthenticatedApp({ currentUser, permissions, onLogout }) {
+  const setStoreUser = useAuthStore((s) => s.setCurrentUser);
+  const clearStoreUser = useAuthStore((s) => s.clearCurrentUser);
+
+  // Keep authStore in sync so usePermission() works throughout the app
+  useEffect(() => {
+    if (currentUser) setStoreUser(currentUser);
+    else clearStoreUser();
+  }, [currentUser, setStoreUser, clearStoreUser]);
+
+  const routes = createAppRoutes({ currentUser, permissions, onLogout });
+  return useRoutes(routes);
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
 
@@ -338,7 +354,7 @@ export default function App() {
   }
 
   return (
-    <ProductionScheduler
+    <AuthenticatedApp
       currentUser={currentUser}
       permissions={permissions}
       onLogout={handleLogout}

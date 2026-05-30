@@ -8,7 +8,7 @@ import {
   upsertPipelineDeals as apiUpsertMany,
 } from "../lib/pipelineApi.js";
 
-const LS_KEY = "scheduler-pipeline-v1";
+const LS_KEY = "scheduler-pipeline-v2";
 
 export function usePipelineDeals(sampleDeals) {
   const [deals, setDealsState] = useState([]);

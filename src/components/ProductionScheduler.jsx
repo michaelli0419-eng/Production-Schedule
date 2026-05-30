@@ -5,6 +5,7 @@ import { useSubmittals } from "../hooks/useSubmittals.js";
 import { useUserProfiles } from "../hooks/useUserProfiles.js";
 import { isSupabaseEnabled, supabase as supabaseClient } from "../lib/supabase.js";
 import { logActivity } from "../lib/activityApi.js";
+import PipelineKanban from "./PipelineKanban.jsx";
 
 const FALLBACK_YEAR = 2026;
 const LINES = [
@@ -182,6 +183,10 @@ function rangesOverlap(aStart, aEnd, bStart, bEnd) {
   return !(aEnd < bStart || aStart > bEnd);
 }
 
+function jobLabel(job) {
+  return job?.jobNumber ? `${job.jobNumber} · ${job.name}` : (job?.name || "");
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -332,7 +337,7 @@ function normalizeJob(job, index) {
     sourceType: job.sourceType || "",
     sourceSheet: job.sourceSheet || "",
     sourceRow: job.sourceRow || "",
-    jobNumber: job.jobNumber || "",
+    jobNumber: job.jobNumber || job.job_number || "",
     master: {
       contract: job.master?.contract || "",
       submittalsOut: job.master?.submittalsOut || "",
@@ -513,6 +518,7 @@ function ModuleWorkspace({
   module,
   jobs,
   pipelineDeals,
+  setPipelineDeals,
   submittals,
   kpis,
   risks,
@@ -908,7 +914,7 @@ function ModuleWorkspace({
                     <span className={`ps-status-dot is-${risk.type === "Late" || risk.type === "Overlap" ? "red" : risk.type === "Delay" ? "amber" : "blue"}`} />
                     <div>
                       <strong>{risk.type}</strong>
-                      <small>{risk.job?.name || risk.detail}</small>
+                      <small>{risk.job ? jobLabel(risk.job) : risk.detail}</small>
                     </div>
                     {risk.job && <span className="ps-dash-alert-arrow">→</span>}
                   </button>
@@ -1105,139 +1111,13 @@ function ModuleWorkspace({
     return (
       <section className="ps-module-page" aria-label={module.title}>
         <ModuleHead module={module} eyebrow="Sales to production" />
-        <section className="ps-table-panel">
-          <div className="ps-section-head">
-            <h2>Pipeline Filters</h2>
-            <span>Filter by customer, BDM, stage, and building type</span>
-          </div>
-          <div className="ps-pipeline-filters">
-            <input
-              className="ps-input"
-              type="search"
-              placeholder="Search project, customer, job #, notes"
-              value={pipelineSearch}
-              onChange={(event) => setPipelineSearch(event.target.value)}
-            />
-            <select className="ps-input" value={pipelineClientFilter} onChange={(event) => setPipelineClientFilter(event.target.value)}>
-              <option value="all">All Customers</option>
-              {pipelineClients.map((client) => <option key={client} value={client}>{client}</option>)}
-            </select>
-            <select className="ps-input" value={pipelineBdmFilter} onChange={(event) => setPipelineBdmFilter(event.target.value)}>
-              <option value="all">All BDMs</option>
-              {pipelineBdms.map((bdm) => <option key={bdm} value={bdm}>{bdm}</option>)}
-            </select>
-            <select className="ps-input" value={pipelineStageFilter} onChange={(event) => setPipelineStageFilter(event.target.value)}>
-              <option value="all">All Stages</option>
-              {PIPELINE_STAGES.map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
-            </select>
-            <select className="ps-input" value={pipelineBuildingFilter} onChange={(event) => setPipelineBuildingFilter(event.target.value)}>
-              <option value="all">All Building Types</option>
-              {pipelineBuildingTypes.map((building) => <option key={building} value={building}>{building}</option>)}
-            </select>
-          </div>
-        </section>
-        {/* Win probability revenue forecast by close month */}
-        <section className="ps-table-panel">
-          <div className="ps-section-head">
-            <h2>Revenue Forecast by Close Month</h2>
-            <span>Probability-weighted pipeline revenue · bars sized to max month</span>
-          </div>
-          <div className="ps-pipeline-forecast">
-            {(() => {
-              const monthBuckets = {};
-              pipelineRows.forEach(({ deal, weighted, closeDate }) => {
-                const d = toDate(closeDate);
-                if (isNaN(d)) return;
-                const key = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-                monthBuckets[key] = (monthBuckets[key] || 0) + weighted;
-              });
-              const entries = Object.entries(monthBuckets).sort(([a], [b]) => a.localeCompare(b)).slice(0, 12);
-              const maxVal = Math.max(1, ...entries.map(([, v]) => v));
-              return entries.map(([label, val]) => (
-                <div key={label} className="ps-forecast-bar-row">
-                  <span className="ps-forecast-label">{label}</span>
-                  <div className="ps-forecast-track">
-                    <div className="ps-forecast-fill" style={{ width: `${Math.round((val / maxVal) * 100)}%` }} />
-                  </div>
-                  <span className="ps-forecast-val">{canViewPrices ? formatMoney(val) : "Locked"}</span>
-                </div>
-              ));
-            })()}
-            {pipelineRows.length === 0 && <p className="ps-empty">No pipeline deals with close dates.</p>}
-          </div>
-        </section>
-
-        <div className="ps-stage-board">
-          {pipelineTotals.map((stage) => (
-            <section key={stage.id} className="ps-stage-column">
-              <div className="ps-stage-head">
-                <strong>{stage.label}</strong>
-                <span>{stage.count} deals - {formatProtectedMoney(stage.weighted, canViewPrices)}</span>
-              </div>
-              {pipelineRows.filter((row) => row.stage.id === stage.id).map(({ deal, revenue, weighted, closeDate }) => (
-                <div key={deal.id} className="ps-deal-card">
-                  <button type="button" className="ps-deal-card-body" onClick={() => onOpenProduction(jobs[0]?.id)}>
-                    <strong>{deal.opportunityName}</strong>
-                    <span>{deal.client}</span>
-                    <small>{formatProtectedMoney(revenue, canViewPrices)}</small>
-                    <div>
-                      <b>{canViewPrices ? `${formatMoney(weighted)} weighted` : "Weighted price locked"}</b>
-                      <em>{displayDate(closeDate)}</em>
-                    </div>
-                  </button>
-                  {(stage.id === "award" || stage.id === "handoff") && (
-                    <button
-                      type="button"
-                      className="ps-deal-convert-btn"
-                      title="Convert this deal to a production job"
-                      onClick={() => onAddJobFromDeal && onAddJobFromDeal(deal)}
-                    >
-                      + Convert to Job
-                    </button>
-                  )}
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-        <section className="ps-table-panel">
-          <div className="ps-section-head">
-            <h2>2026 Sales Pipeline</h2>
-            <span>{filteredPipelineRows.length} opportunities shown</span>
-          </div>
-          <div className="ps-pipeline-table-wrap">
-            <table className="ps-pipeline-table">
-              <thead>
-                <tr>
-                  <th>Customer</th>
-                  <th>Project Name</th>
-                  <th>BDM</th>
-                  <th>Job #</th>
-                  <th>Contract Value</th>
-                  <th>Building Type</th>
-                  <th>Stage</th>
-                  <th>Close Date</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredPipelineRows.map(({ deal, stage, revenue, closeDate }) => (
-                  <tr key={deal.id}>
-                    <td>{deal.client || "-"}</td>
-                    <td>{deal.opportunityName || "-"}</td>
-                    <td>{deal.estimator || "-"}</td>
-                    <td>{deal.jobNumber || "-"}</td>
-                    <td>{formatProtectedMoney(revenue, canViewPrices)}</td>
-                    <td>{deal.buildingType || "-"}</td>
-                    <td>{stage.label}</td>
-                    <td>{displayDate(closeDate)}</td>
-                    <td>{deal.notes || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <PipelineKanban
+          deals={pipelineDeals}
+          setDeals={setPipelineDeals}
+          onAddJobFromDeal={onAddJobFromDeal}
+          canViewPrices={canViewPrices}
+          onOpenJobRecord={onOpenFactSheet}
+        />
       </section>
     );
   }
@@ -1817,8 +1697,8 @@ function ModuleWorkspace({
                     </td>
                     <td className="ps-ap-job-cell">
                       <button className="fs-open-btn" onClick={() => onOpenFactSheet?.(job.id)} title="Open fact sheet">
-                        <strong>{job.name}</strong>
-                        <small>{job.client}{job.jobNumber ? ` · #${job.jobNumber}` : ""}</small>
+                        <strong>{jobLabel(job)}</strong>
+                        <small>{job.client}</small>
                         {(job.procore?.rfiOpenCount > 0 || job.procore?.punchOpenCount > 0 || job.procore?.changeEventCount > 0 || job.procore?.inspectionDeficient > 0) && (
                           <span className="fs-ap-procore-pills">
                             {job.procore?.rfiOpenCount > 0 && (
@@ -1921,7 +1801,7 @@ function ModuleWorkspace({
             {bridgeGaps.map(({ job, integration, readiness }) => (
               <button key={job.id} type="button" onClick={() => onOpenProduction(job.id)}>
                 <strong>{integration.label}</strong>
-                <span>{job.name}</span>
+                <span>{jobLabel(job)}</span>
                 <small>{readiness}% readiness - {job.notes || "No note entered"}</small>
               </button>
             ))}
@@ -2289,6 +2169,8 @@ const FS_TABS = [
   { id: "dsa",        label: "DSA & Submittals" },
   { id: "production", label: "Production" },
   { id: "procore",    label: "Procore Live" },
+  { id: "financials", label: "Financials" },
+  { id: "activity",   label: "Activity" },
   { id: "notes",      label: "Notes" },
 ];
 
@@ -2296,6 +2178,24 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
   const [tab, setTab] = useState("overview");
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [activityLog, setActivityLog] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "activity" || !supabaseClient || !job?.id) return;
+    setActivityLoading(true);
+    supabaseClient
+      .from("activity_log")
+      .select("*")
+      .eq("job_id", job.id)
+      .order("created_at", { ascending: false })
+      .limit(50)
+      .then(({ data }) => {
+        setActivityLog(data || []);
+        setActivityLoading(false);
+      });
+  }, [tab, job?.id]);
+
   if (!job) return null;
   const u = (patch) => updateJob(job.id, patch);
   const m = (field, val) => updateMasterField(job.id, field, val);
@@ -2308,8 +2208,7 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
         {/* Header */}
         <div className="fs-header">
           <div className="fs-header-left">
-            <span className="fs-job-number">{job.jobNumber || "—"}</span>
-            <h2 className="fs-title">{job.name}</h2>
+            <h2 className="fs-title">{jobLabel(job)}</h2>
             <span className="fs-client">{job.client}</span>
           </div>
           <div className="fs-header-right">
@@ -2536,6 +2435,89 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
             />
           )}
 
+          {/* ── Financials ── */}
+          {tab === "financials" && (
+            <div className="fs-section-grid">
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Prime Contract</div>
+                <div className="fs-two-col">
+                  <div className="fs-stat-box">
+                    <span className="fs-stat-label">Contract Executed</span>
+                    <span className="fs-stat-val">{job.procore?.primeContractExecuted ? "Yes" : "Pending"}</span>
+                    {job.procore?.primeContractDate && <span className="fs-stat-sub">{displayDate(job.procore.primeContractDate)}</span>}
+                  </div>
+                  <div className="fs-stat-box">
+                    <span className="fs-stat-label">Contract Notes</span>
+                    <textarea className="fs-input fs-textarea" style={{ minHeight: 64 }} value={job.master?.contract || ""}
+                      onChange={(e) => m("contract", e.target.value)} placeholder="Contract terms, notes…" />
+                  </div>
+                </div>
+              </div>
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Subcontract</div>
+                <div className="fs-two-col">
+                  <div className="fs-stat-box">
+                    <span className="fs-stat-label">Subcontract Executed</span>
+                    <span className="fs-stat-val">{job.procore?.subcontractExecuted ? "Yes" : "Pending"}</span>
+                    {job.procore?.subcontractDate && <span className="fs-stat-sub">{displayDate(job.procore.subcontractDate)}</span>}
+                  </div>
+                  <div className="fs-stat-box">
+                    <span className="fs-stat-label">Subcontract Amount</span>
+                    <span className="fs-stat-val fs-stat-green">
+                      {job.procore?.subcontractAmount != null
+                        ? new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(job.procore.subcontractAmount)
+                        : "—"}
+                    </span>
+                  </div>
+                </div>
+                <label className="fs-label" style={{ marginTop: 8 }}>Subcontract Status (notes)
+                  <input className="fs-input" value={job.master?.subcontractStatus || ""}
+                    onChange={(e) => m("subcontractStatus", e.target.value)} placeholder="e.g. Executed, Pending signature…" />
+                </label>
+              </div>
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Change Events</div>
+                <div className="fs-two-col">
+                  <div className="fs-stat-box">
+                    <span className="fs-stat-label">Open Change Events</span>
+                    <span className="fs-stat-val">{job.procore?.changeEventCount ?? 0}</span>
+                  </div>
+                  <div className="fs-stat-box">
+                    <span className="fs-stat-label">RFIs Open / Overdue</span>
+                    <span className="fs-stat-val">{job.procore?.rfiOpenCount ?? 0} / <span style={{ color: "#b91c1c" }}>{job.procore?.rfiOverdueCount ?? 0}</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Activity ── */}
+          {tab === "activity" && (
+            <div className="fs-section-grid">
+              <div className="fs-field-group fs-full">
+                <div className="fs-section-head">Job Activity Log</div>
+                {activityLoading ? (
+                  <p className="fs-empty-msg">Loading…</p>
+                ) : activityLog.length === 0 ? (
+                  <p className="fs-empty-msg">No activity recorded for this job yet.</p>
+                ) : (
+                  <div className="fs-activity-list">
+                    {activityLog.map((entry) => (
+                      <div key={entry.id} className="fs-activity-row">
+                        <div className="fs-activity-meta">
+                          <span className="fs-activity-action">{entry.action || "update"}</span>
+                          <span className="fs-activity-ts">{entry.created_at ? new Date(entry.created_at).toLocaleString() : ""}</span>
+                          {entry.user_name && <span className="fs-activity-user">{entry.user_name}</span>}
+                        </div>
+                        {entry.detail && <div className="fs-activity-detail">{entry.detail}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {tab === "notes" && (
             <div className="fs-section-grid">
               <div className="fs-field-group fs-full">
@@ -2570,6 +2552,289 @@ function JobFactSheet({ job, onClose, updateJob, updateMasterField }) {
   );
 }
 
+// ── Calendar View ───────────────────────────────────────────────────────────
+const CAL_DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const CAL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+function jobActiveOnDate(job, dateStr) {
+  return job.start <= dateStr && dateStr <= job.end && job.line !== "QUEUE";
+}
+
+function CalendarView({ jobs, today, onSelectJob }) {
+  const [calMode, setCalMode] = useState("week"); // "week" | "month"
+  const [anchor, setAnchor] = useState(() => {
+    const d = toDate(today);
+    const dow = (d.getDay() + 6) % 7; // Mon=0
+    d.setDate(d.getDate() - dow);
+    return formatDate(d);
+  });
+
+  function weekStart(dateStr) {
+    const d = toDate(dateStr);
+    const dow = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - dow);
+    return formatDate(d);
+  }
+
+  function monthStart(dateStr) {
+    const d = toDate(dateStr);
+    return formatDate(new Date(d.getFullYear(), d.getMonth(), 1));
+  }
+
+  function navWeek(delta) {
+    setAnchor((a) => addDays(a, delta * 7));
+  }
+  function navMonth(delta) {
+    const d = toDate(anchor);
+    d.setMonth(d.getMonth() + delta);
+    d.setDate(1);
+    setAnchor(formatDate(d));
+  }
+  function goToday() {
+    setAnchor(calMode === "week" ? weekStart(today) : monthStart(today));
+  }
+
+  if (calMode === "week") {
+    const days = Array.from({ length: 7 }, (_, i) => addDays(anchor, i));
+    const anchorDate = toDate(anchor);
+    const label = `${CAL_MONTHS[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`;
+    return (
+      <div className="cal-root">
+        <div className="cal-toolbar">
+          <button type="button" onClick={() => navWeek(-1)}>‹</button>
+          <strong>{label}</strong>
+          <button type="button" onClick={() => navWeek(1)}>›</button>
+          <button type="button" className="cal-today-btn" onClick={goToday}>Today</button>
+          <div className="cal-mode-tabs">
+            <button type="button" className="is-active">Week</button>
+            <button type="button" onClick={() => { setCalMode("month"); setAnchor(monthStart(anchor)); }}>Month</button>
+          </div>
+        </div>
+        <div className="cal-week-grid">
+          <div className="cal-week-header">
+            <div className="cal-week-corner" />
+            {days.map((d) => {
+              const dt = toDate(d);
+              const isToday = d === today;
+              return (
+                <div key={d} className={`cal-week-day-head${isToday ? " is-today" : ""}`}>
+                  <span>{CAL_DAYS[(dt.getDay() + 6) % 7]}</span>
+                  <strong>{dt.getDate()}</strong>
+                </div>
+              );
+            })}
+          </div>
+          {LINES.map((line) => {
+            const lineJobs = jobs.filter((j) => j.line === line.id);
+            return (
+              <div key={line.id} className="cal-week-row">
+                <div className="cal-week-line-label">
+                  <strong>{line.name}</strong>
+                  <small>{line.focus}</small>
+                </div>
+                {days.map((d) => {
+                  const active = lineJobs.filter((j) => jobActiveOnDate(j, d));
+                  const isToday = d === today;
+                  return (
+                    <div key={d} className={`cal-week-cell${isToday ? " is-today" : ""}`}>
+                      {active.map((job) => (
+                        <button
+                          key={job.id}
+                          type="button"
+                          className="cal-job-chip"
+                          style={{ background: job.color }}
+                          title={`${jobLabel(job)} — ${job.client}`}
+                          onClick={() => onSelectJob(job.id)}
+                        >
+                          {job.jobNumber && <span className="cal-chip-num">{job.jobNumber}</span>}
+                          <span className="cal-chip-name">{job.name.length > 14 ? job.name.slice(0, 13) + "…" : job.name}</span>
+                        </button>
+                      ))}
+                      {active.length === 0 && <span className="cal-cell-empty" />}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Month view
+  const anchorDate = toDate(anchor);
+  const year = anchorDate.getFullYear();
+  const month = anchorDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const firstDow = (firstDay.getDay() + 6) % 7; // Mon=0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const gridStart = formatDate(new Date(year, month, 1 - firstDow));
+  const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7;
+  const cells = Array.from({ length: totalCells }, (_, i) => addDays(gridStart, i));
+
+  return (
+    <div className="cal-root">
+      <div className="cal-toolbar">
+        <button type="button" onClick={() => navMonth(-1)}>‹</button>
+        <strong>{CAL_MONTHS[month]} {year}</strong>
+        <button type="button" onClick={() => navMonth(1)}>›</button>
+        <button type="button" className="cal-today-btn" onClick={goToday}>Today</button>
+        <div className="cal-mode-tabs">
+          <button type="button" onClick={() => { setCalMode("week"); setAnchor(weekStart(anchor)); }}>Week</button>
+          <button type="button" className="is-active">Month</button>
+        </div>
+      </div>
+      <div className="cal-month-grid">
+        {CAL_DAYS.map((d) => <div key={d} className="cal-month-dow">{d}</div>)}
+        {cells.map((d) => {
+          const inMonth = toDate(d).getMonth() === month;
+          const isToday = d === today;
+          const active = jobs.filter((j) => jobActiveOnDate(j, d) && j.line !== "QUEUE");
+          return (
+            <div key={d} className={`cal-month-cell${inMonth ? "" : " out-of-month"}${isToday ? " is-today" : ""}`}>
+              <span className="cal-month-cell-date">{toDate(d).getDate()}</span>
+              {active.slice(0, 3).map((job) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  className="cal-job-chip cal-job-chip-sm"
+                  style={{ background: job.color }}
+                  title={`${jobLabel(job)} · ${job.line}`}
+                  onClick={() => onSelectJob(job.id)}
+                >
+                  {job.jobNumber && <span className="cal-chip-num">{job.jobNumber}</span>}
+                  <span className="cal-chip-name">{job.name.length > 12 ? job.name.slice(0, 11) + "…" : job.name}</span>
+                </button>
+              ))}
+              {active.length > 3 && (
+                <span className="cal-more-badge">+{active.length - 3} more</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Dispatch Board ───────────────────────────────────────────────────────────
+function DispatchBoard({ jobs, today, updateJob, updateMasterField, onSelectJob }) {
+  const [dispatchDate, setDispatchDate] = useState(today);
+
+  const activeByLine = useMemo(() => {
+    const result = {};
+    for (const line of LINES) {
+      result[line.id] = jobs.filter((j) => j.line === line.id && jobActiveOnDate(j, dispatchDate));
+    }
+    return result;
+  }, [jobs, dispatchDate]);
+
+  const totalCrew = LINES.reduce((sum, l) => sum + (activeByLine[l.id] || []).reduce((s, j) => s + (j.crew || 0), 0), 0);
+  const totalModules = LINES.reduce((sum, l) => sum + (activeByLine[l.id] || []).reduce((s, j) => s + (j.modules || 0), 0), 0);
+  const activeLineCount = LINES.filter((l) => (activeByLine[l.id] || []).length > 0).length;
+
+  const dispDt = toDate(dispatchDate);
+  const dispLabel = `${CAL_DAYS[(dispDt.getDay() + 6) % 7]}, ${CAL_MONTHS[dispDt.getMonth()]} ${dispDt.getDate()}, ${dispDt.getFullYear()}`;
+
+  return (
+    <div className="db-root">
+      <div className="db-toolbar">
+        <button type="button" onClick={() => setDispatchDate((d) => addDays(d, -1))}>‹ Prev</button>
+        <div className="db-date-block">
+          <strong>{dispLabel}</strong>
+          {dispatchDate === today && <span className="db-today-badge">Today</span>}
+        </div>
+        <button type="button" onClick={() => setDispatchDate((d) => addDays(d, 1))}>Next ›</button>
+        <button type="button" className="db-jump-today" onClick={() => setDispatchDate(today)}>Jump to Today</button>
+        <input type="date" className="db-date-input" value={dispatchDate} onChange={(e) => setDispatchDate(e.target.value)} />
+      </div>
+
+      <div className="db-summary-bar">
+        <div className="db-sum-kpi"><span>{activeLineCount}</span><label>Lines active</label></div>
+        <div className="db-sum-kpi"><span>{totalCrew}</span><label>Crew on site</label></div>
+        <div className="db-sum-kpi"><span>{totalModules}</span><label>Modules in production</label></div>
+      </div>
+
+      <div className="db-board">
+        {LINES.map((line) => {
+          const lineJobs = activeByLine[line.id] || [];
+          const isEmpty = lineJobs.length === 0;
+          return (
+            <div key={line.id} className={`db-line-card${isEmpty ? " db-line-idle" : ""}`}>
+              <div className="db-line-head">
+                <div>
+                  <strong>{line.name}</strong>
+                  <small>{line.focus}</small>
+                </div>
+                {!isEmpty && (
+                  <span className="db-line-crew-badge">{lineJobs.reduce((s, j) => s + (j.crew || 0), 0)} crew</span>
+                )}
+                {isEmpty && <span className="db-idle-badge">Idle</span>}
+              </div>
+              {isEmpty && (
+                <p className="db-idle-msg">No jobs scheduled for this line today.</p>
+              )}
+              {lineJobs.map((job) => {
+                const readyCount = Object.values(job.readiness || {}).filter(Boolean).length;
+                const daysLeft = Math.round((toDate(job.end) - toDate(dispatchDate)) / MS_PER_DAY);
+                return (
+                  <div key={job.id} className="db-job-block">
+                    <div className="db-job-color-bar" style={{ background: job.color }} />
+                    <div className="db-job-body">
+                      <div className="db-job-title-row">
+                        <button type="button" className="db-job-name" onClick={() => onSelectJob(job.id)}>
+                          {jobLabel(job)}
+                        </button>
+                        <span className={`ps-status-chip is-${job.status}`}>{STATUS_CONFIG[job.status]?.label || job.status}</span>
+                      </div>
+                      <div className="db-job-client">{job.client}</div>
+
+                      <div className="db-job-meta">
+                        <span>{job.modules} modules</span>
+                        <span>{job.crew} crew</span>
+                        <span className={daysLeft < 0 ? "db-late" : daysLeft <= 5 ? "db-warn" : ""}>
+                          {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d to ship`}
+                        </span>
+                        {job.pm && <span>PM: {job.pm}</span>}
+                      </div>
+
+                      <div className="db-progress-row">
+                        <div className="db-progress-bar">
+                          <div className="db-progress-fill" style={{ width: `${job.progress}%`, background: job.color }} />
+                        </div>
+                        <span>{job.progress}%</span>
+                      </div>
+
+                      <div className="db-readiness-row">
+                        {[["drawings","Plans"],["materials","Materials"],["permits","Permits"],["inspections","QA"]].map(([key, lbl]) => (
+                          <label key={key} className={`db-ready-chip${job.readiness?.[key] ? " is-done" : ""}`}>
+                            <input type="checkbox" checked={Boolean(job.readiness?.[key])}
+                              onChange={(e) => updateJob(job.id, { readiness: { ...job.readiness, [key]: e.target.checked } })} />
+                            {lbl}
+                          </label>
+                        ))}
+                        <span className="db-ready-count">{readyCount}/4</span>
+                      </div>
+
+                      {(job.master?.openItems || job.master?.pmUpdate) && (
+                        <div className="db-notes-preview">
+                          {job.master?.pmUpdate && <p><strong>PM:</strong> {job.master.pmUpdate.slice(0, 120)}{job.master.pmUpdate.length > 120 ? "…" : ""}</p>}
+                          {job.master?.openItems && <p><strong>Open:</strong> {job.master.openItems.slice(0, 100)}{job.master.openItems.length > 100 ? "…" : ""}</p>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Week tick data for the timeline header ──────────────────────────────────
 function buildWeekTicks(dayPx, timelineStart, timelineEnd) {
   const ticks = [];
@@ -2590,7 +2855,13 @@ function buildWeekTicks(dayPx, timelineStart, timelineEnd) {
   return ticks;
 }
 
-export default function ProductionScheduler({ currentUser, permissions, onLogout }) {
+export default function ProductionScheduler({
+  currentUser,
+  permissions,
+  onLogout,
+  initialModule = "dashboard",
+  embedded = false,
+}) {
   const {
     jobs,
     setJobs: persistJobs,
@@ -2618,10 +2889,11 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   const [lineFilter, setLineFilter] = useState("all");
   const [pmFilter, setPmFilter] = useState("all");
   const [summaryList, setSummaryList] = useState(null);
-  const [activeModule, setActiveModule] = useState("dashboard");
+  const [activeModule, setActiveModule] = useState(initialModule);
   const [scheduleView, setScheduleView] = useState("production");
   const [factSheetId, setFactSheetId] = useState(null);
   const [dayPx, setDayPx] = useState(4);
+  const [scheduleLayoutView, setScheduleLayoutView] = useState("gantt"); // "gantt" | "calendar" | "dispatch"
   const [simulationMode, setSimulationMode] = useState(false);
   const [simulationJobs, setSimulationJobs] = useState(null);
   const [excelSync, setExcelSync] = useState({
@@ -3417,7 +3689,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   // ── Loading state ───────────────────────────────────────────────────────
   if (dbLoading) {
     return (
-      <main className="ps-shell ps-loading-shell">
+      <main className={`ps-shell ps-loading-shell${embedded ? " ps-shell-embedded" : ""}`}>
         <div className="ps-loading">
           <div className="ps-loading-spinner" />
           <p>{isSupabase ? "Loading schedule from database…" : "Loading schedule…"}</p>
@@ -3427,8 +3699,9 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
   }
 
   return (
-    <main className="ps-shell">
+    <main className={`ps-shell${embedded ? " ps-shell-embedded" : ""}`}>
       {/* ── Top Bar ─────────────────────────────────────────────────────── */}
+      {!embedded && (
       <header className="ps-topbar">
         <div className="ps-brand">
           <div className="ps-brand-mark" aria-hidden="true">
@@ -3488,6 +3761,33 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           <input ref={fileRef} type="file" accept=".csv" className="ps-hidden" onChange={onFileChange} />
         </div>
       </header>
+      )}
+
+      {embedded && (
+        <section className="ps-embedded-actions">
+          {activeModule === "production" && (
+            <>
+              <Button onClick={() => addJob("L1")}>+ Job</Button>
+              <Button tone="quiet" onClick={() => addJob(QUEUE)}>+ Queue</Button>
+              <Button tone="quiet" onClick={() => fileRef.current?.click()}>Import CSV</Button>
+              <Button tone="quiet" onClick={syncFromExcel} disabled={excelSync.busy}>Sync Excel</Button>
+              <Button tone="quiet" onClick={saveToExcel} disabled={excelSync.busy}>Save Excel</Button>
+              <Button tone={simulationMode ? "dark" : "quiet"} onClick={toggleSimulationMode}>
+                {simulationMode ? "Discard Sim" : "Simulate"}
+              </Button>
+              {simulationMode && <Button onClick={applySimulation}>Apply Sim</Button>}
+              <Button tone="dark" onClick={exportCSV}>Export</Button>
+            </>
+          )}
+          {activeModule === "pipeline" && (
+            <>
+              <Button tone="quiet" onClick={syncFromSalesExcel} disabled={excelSync.busy}>Sync Sales Excel</Button>
+              <Button tone="quiet" onClick={savePipelineToExcel} disabled={excelSync.busy}>Save Sales Excel</Button>
+            </>
+          )}
+          <input ref={fileRef} type="file" accept=".csv" className="ps-hidden" onChange={onFileChange} />
+        </section>
+      )}
 
       {activeModule === "production" ? (
       <>
@@ -3522,7 +3822,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                     setLineFilter("all");
                   }}
                 >
-                  <b>{job.jobNumber ? `${job.jobNumber} · ` : ""}{job.name}</b>
+                  <b>{jobLabel(job)}</b>
                   <span>{job.line} · {STATUS_CONFIG[job.status]?.label || job.status} · Ship {displayDate(job.end)}</span>
                   {summaryList === "readiness" && <small>{readinessScore(job)}% ready</small>}
                 </button>
@@ -3569,6 +3869,15 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
             </button>
           ))}
         </div>
+        <div className="ps-layout-tabs" role="group" aria-label="Layout view">
+          {[["gantt","Gantt"],["calendar","Calendar"],["dispatch","Dispatch"]].map(([id, label]) => (
+            <button key={id} type="button"
+              className={scheduleLayoutView === id ? "is-active" : ""}
+              onClick={() => setScheduleLayoutView(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <button className="ps-today-btn" type="button" onClick={scrollToToday} title="Jump to today">
           Today
         </button>
@@ -3603,7 +3912,14 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
       )}
 
       {/* ── Main Workspace ──────────────────────────────────────────────── */}
-      <div className="ps-workspace">
+      {scheduleLayoutView === "calendar" && (
+        <CalendarView jobs={visibleJobs} today={today} onSelectJob={(id) => { setSelectedId(id); setScheduleLayoutView("gantt"); }} />
+      )}
+      {scheduleLayoutView === "dispatch" && (
+        <DispatchBoard jobs={visibleJobs} today={today} updateJob={updateJob} updateMasterField={updateMasterField}
+          onSelectJob={(id) => { setSelectedId(id); setScheduleLayoutView("gantt"); }} />
+      )}
+      <div className={`ps-workspace${scheduleLayoutView !== "gantt" ? " ps-workspace-hidden" : ""}`}>
         {/* Gantt Board */}
         <section className="ps-board" aria-label="Four line schedule">
           {/* Line labels (fixed left column) */}
@@ -3708,7 +4024,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                       left: dateToX(layout.trackRange.start),
                       width,
                     }}
-                    title={`${job.name}\n${layout.view.endLabel} view\nTopset: ${displayDate(layout.dates.start)}\nTopset Complete: ${displayDate(layout.dates.offLine)}\nShipping: ${displayDate(layout.dates.end)}\nSet: ${displayDate(layout.dates.due)}\n${job.modules} modules\n\nDouble-click to open fact sheet`}
+                    title={`${jobLabel(job)}\n${layout.view.endLabel} view\nTopset: ${displayDate(layout.dates.start)}\nTopset Complete: ${displayDate(layout.dates.offLine)}\nShipping: ${displayDate(layout.dates.end)}\nSet: ${displayDate(layout.dates.due)}\n${job.modules} modules\n\nDouble-click to open fact sheet`}
                     onMouseDown={(e) => startDrag(e, job.id)}
                     onDoubleClick={() => setFactSheetId(job.id)}
                   >
@@ -3756,8 +4072,8 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                         </i>
                       </>
                     )}
-                    <span>{`${job.jobNumber || "No job #"} · ${job.client || "No client"}`}</span>
-                    <small>{job.name}{job.pm ? <> · <em className="ps-job-pm">{job.pm}</em></> : null}</small>
+                    <span>{jobLabel(job)}</span>
+                    <small>{job.client || "No client"}{job.pm ? <> · <em className="ps-job-pm">{job.pm}</em></> : null}</small>
                     <b style={{ width: `${job.progress}%` }} />
                     {dragging?.jobId === job.id && (
                       <div className="ps-drag-impact">
@@ -4034,7 +4350,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                 risks.map((risk, i) => (
                   <button key={`${risk.type}-${i}`} type="button" onClick={() => risk.job && setSelectedId(risk.job.id)}>
                     <strong>{risk.type}</strong>
-                    <span>{risk.job?.name || risk.detail}</span>
+                    <span>{risk.job ? jobLabel(risk.job) : risk.detail}</span>
                     {risk.job && <small>{risk.detail}</small>}
                   </button>
                 ))
@@ -4059,7 +4375,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
                     onClick={() => setSelectedId(job.id)}
                   >
                     <i style={{ background: job.color }} />
-                    <span>{job.name}</span>
+                    <span>{jobLabel(job)}</span>
                     <small>{job.modules} modules · score {job.queueScore}</small>
                     <small className={`ps-queue-badge is-${job.queueBucket.tone}`}>{job.queueBucket.label}</small>
                     <small>Best line: {bestLineByQueueJob[job.id] || "L1"}</small>
@@ -4099,6 +4415,7 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
           module={activeModuleConfig}
           jobs={workingJobs}
           pipelineDeals={pipelineDeals}
+          setPipelineDeals={setPipelineDeals}
           submittals={submittals}
           kpis={kpis}
           risks={risks}
@@ -4147,3 +4464,6 @@ export default function ProductionScheduler({ currentUser, permissions, onLogout
     </main>
   );
 }
+
+
+

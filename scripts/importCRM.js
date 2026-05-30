@@ -85,6 +85,7 @@ function cleanPm(val) {
 function mapLine(val) {
   if (!val) return null;
   const s = String(val).trim();
+  if (/^queue$/i.test(s)) return "QUEUE";
   const m = s.match(/(\d)/);
   // "Shipped" or "Yard" etc. → no line assignment
   if (!m) return null;
@@ -107,6 +108,7 @@ function mapProductionStatus(stage) {
 function mapPipelineStage(stage) {
   if (!stage) return "lead";
   const s = String(stage).toLowerCase();
+  if (s.includes("active pipeline")) return "proposal";
   if (s.includes("active")) return "proposal";
   if (s.includes("closed")) return "handoff";
   if (s.includes("lead") || s.includes("pre-con")) return "lead";
@@ -114,6 +116,27 @@ function mapPipelineStage(stage) {
   // "Lost*" → return null to skip
   if (s.includes("lost")) return null;
   return "lead";
+}
+
+function stageProbability(stage, rawConfidence) {
+  if (rawConfidence !== null && rawConfidence !== undefined && rawConfidence !== "") {
+    return prob(rawConfidence);
+  }
+  return {
+    lead: 15,
+    estimate: 35,
+    proposal: 55,
+    award: 80,
+    handoff: 95,
+  }[stage] ?? 50;
+}
+
+function mapLeadStatus(stage) {
+  if (!stage) return "new";
+  if (stage === "lead") return "new";
+  if (stage === "estimate" || stage === "proposal") return "qualified";
+  if (stage === "award" || stage === "handoff") return "converted";
+  return "new";
 }
 
 function jobColor(status) {
@@ -162,6 +185,23 @@ async function upsertBatch(table, rows, conflict = "id", batchSize = 150) {
     }
   }
   console.log(`  ✓ ${table}: ${ok} upserted${fail ? `, ${fail} failed` : ""}`);
+}
+
+async function tableExists(tableName) {
+  const { error } = await supabase.from(tableName).select("*").limit(1);
+  return !(error && error.code === "PGRST205");
+}
+
+async function loadOpportunityMapByLegacyDeal() {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select("id, legacy_deal_id");
+  if (error) return new Map();
+  const map = new Map();
+  for (const row of data || []) {
+    if (row.legacy_deal_id) map.set(row.legacy_deal_id, row.id);
+  }
+  return map;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -223,7 +263,7 @@ async function main() {
     const jn         = jobNum(r["Job #"]);
     const clientName = str(r["Customer / District"]);
     const amountVal  = num(r["Contract Value ($)"]);
-    const probVal    = prob(r["Confidence"]);
+    const probVal    = stageProbability(dbStage, r["Confidence"]);
 
     // Build a stable id: prefer job# prefix, fall back to slug
     const slug = projName.replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 30);
@@ -236,14 +276,12 @@ async function main() {
       id,
       opportunity_name:    projName,
       client:              clientName,
-      client_id:           clientName ? (clientMap.get(clientName) ?? null) : null,
       stage:               dbStage,
       probability:         probVal,
       amount:              amountVal,
       weighted_amount:     Math.round(amountVal * (probVal / 100)),
       expected_close_date: toDate(r["District Occupancy Date"]) || toDate(r["Prod Start Date"]),
-      bdm:                 str(r["BDM"]),
-      project_manager:     str(r["PM"]),
+      project_manager:     cleanPm(str(r["PM"])),
       notes:               str(r["Current Status / Notes"]),
       source_type:         "excel_import",
       source_sheet:        "Sales Pipeline",
@@ -316,7 +354,7 @@ async function main() {
       name:         projName,
       client:       clientName,
       client_id:    clientName ? (clientMap.get(clientName) ?? null) : null,
-      line_id:      mapLine(lineRaw),
+      line_id:      mapLine(lineRaw) || mapLine(str(ap["Line"])),
       start_date:   effectiveStart,
       end_date:     effectiveEnd,
       due_date:     dueDate,
@@ -329,7 +367,7 @@ async function main() {
       notes:        str(r["Current Status / Notes"]),
 
       // Finance
-      source_deal_id: jn ? (`deal-${jn}` in dealSeenIds ? `deal-${jn}` : null) : null,
+      source_deal_id: jn && dealSeenIds.has(`deal-${jn}`) ? `deal-${jn}` : null,
 
       // Master/submittal fields
       master_contract:            str(r["Contract Status"])            || str(ap["Contract Status"]),

@@ -26,6 +26,7 @@ export function dbRowToPipelineDeal(row) {
     modules: row.modules ?? 0,
     convertedJobId: row.converted_job_id_fk ?? null,
     convertedAt: row.converted_at ?? null,
+    prodStartDate: row.prod_start_date ?? null,
   };
 }
 
@@ -55,6 +56,7 @@ export function pipelineDealToDbRow(deal) {
     modules: Number(deal.modules) || 0,
     converted_job_id_fk: deal.convertedJobId || null,
     converted_at: deal.convertedAt || null,
+    prod_start_date: deal.prodStartDate || null,
   };
 }
 

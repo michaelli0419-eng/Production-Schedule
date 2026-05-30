@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { mockProductionJobs, mockRoutingSteps, mockWorkCenters, getReleaseGateIssues } from "./modules/scheduler/mockData.js";
 
 const YEAR = 2026;
 const LINES = [
@@ -162,14 +163,31 @@ function clamp(value, min, max) {
 }
 
 function normalizeJob(job, index) {
+  const start = job.start || job.start_date || (job.startDateTime ? String(job.startDateTime).slice(0, 10) : "2026-01-05");
+  const end = job.end || job.end_date || (job.endDateTime ? String(job.endDateTime).slice(0, 10) : "2026-01-19");
+  const durationHours = Number(job.durationHours) || (dateDiffDays(start, end) * 8);
+  const productionJobId = job.productionJobId || job.production_job_id || mockProductionJobs[0]?.id || "";
+  const routingStepId = job.routingStepId || job.routing_step_id || mockRoutingSteps[0]?.id || "";
+  const workCenterId = job.workCenterId || job.work_center_id || mockWorkCenters[0]?.id || "";
+  const laneId = (LINE_IDS.includes(job.laneId) ? job.laneId : null) || (LINE_IDS.includes(job.line) ? job.line : "L1");
+
   return {
     id: job.id || String(Date.now() + index),
     name: job.name || job.job_name || "New School Project",
     client: job.client || "District",
-    line: LINE_IDS.includes(job.line) || job.line === QUEUE ? job.line : "L1",
-    start: job.start || job.start_date || "2026-01-05",
-    end: job.end || job.end_date || "2026-01-19",
+    line: LINE_IDS.includes(job.line) || job.line === QUEUE ? job.line : laneId,
+    laneId,
+    start,
+    end,
     due: job.due || job.due_date || job.end || job.end_date || "2026-01-19",
+    startDateTime: job.startDateTime || `${start}T08:00:00.000Z`,
+    endDateTime: job.endDateTime || `${end}T17:00:00.000Z`,
+    durationHours,
+    productionJobId,
+    routingStepId,
+    workCenterId,
+    manuallyScheduled: typeof job.manuallyScheduled === "boolean" ? job.manuallyScheduled : true,
+    conflictStatus: job.conflictStatus || "NONE",
     color: job.color || JOB_COLORS[index % JOB_COLORS.length],
     status: STATUS_CONFIG[job.status] ? job.status : "forecast",
     modules: Number(job.modules) || 12,
@@ -216,6 +234,15 @@ function parseCSV(text) {
 function jobsToCSV(jobs) {
   const headers = [
     "id",
+    "productionJobId",
+    "routingStepId",
+    "workCenterId",
+    "laneId",
+    "startDateTime",
+    "endDateTime",
+    "durationHours",
+    "manuallyScheduled",
+    "conflictStatus",
     "name",
     "client",
     "line",
@@ -237,6 +264,15 @@ function jobsToCSV(jobs) {
   const rows = jobs.map((job) =>
     [
       job.id,
+      job.productionJobId || "",
+      job.routingStepId || "",
+      job.workCenterId || "",
+      job.laneId || job.line || "",
+      job.startDateTime || "",
+      job.endDateTime || "",
+      job.durationHours || "",
+      job.manuallyScheduled,
+      job.conflictStatus || "NONE",
       job.name,
       job.client,
       job.line,
@@ -267,6 +303,15 @@ function csvRowToJob(row, index) {
       start: row.start || row.start_date,
       end: row.end || row.end_date,
       due: row.due || row.due_date,
+      productionJobId: row.productionJobId,
+      routingStepId: row.routingStepId,
+      workCenterId: row.workCenterId,
+      laneId: row.laneId,
+      startDateTime: row.startDateTime,
+      endDateTime: row.endDateTime,
+      durationHours: row.durationHours,
+      manuallyScheduled: row.manuallyScheduled === "true",
+      conflictStatus: row.conflictStatus,
       readiness: {
         drawings: row.drawings_ready === "true",
         materials: row.materials_ready === "true",
@@ -333,15 +378,31 @@ function dateFieldHelp(job) {
   };
 }
 
-export default function ProductionScheduler() {
+export default function ProductionScheduler({ embedded = false }) {
   const [jobs, setJobs] = useState(() => {
     try {
-      const saved = localStorage.getItem("scheduler-jobs-v2");
+      const saved = localStorage.getItem("scheduler-tasks-v1");
+      const savedLegacyV2 = localStorage.getItem("scheduler-jobs-v2");
       const legacy = localStorage.getItem("scheduler-jobs");
-      return (saved ? JSON.parse(saved) : legacy ? JSON.parse(legacy) : SAMPLE_JOBS).map(normalizeJob);
+      return (saved ? JSON.parse(saved) : savedLegacyV2 ? JSON.parse(savedLegacyV2) : legacy ? JSON.parse(legacy) : SAMPLE_JOBS).map(normalizeJob);
     } catch {
       return SAMPLE_JOBS;
     }
+  });
+  const setScheduledTasks = setJobs;
+  const [productionJobs] = useState(mockProductionJobs);
+  const [routingSteps] = useState(mockRoutingSteps);
+  const [workCenters] = useState(mockWorkCenters);
+  const [overrideLogs, setOverrideLogs] = useState([]);
+  const [createTaskDraft, setCreateTaskDraft] = useState(null);
+  const [taskForm, setTaskForm] = useState({
+    productionJobId: mockProductionJobs[0]?.id || "",
+    routingStepId: mockRoutingSteps[0]?.id || "",
+    workCenterId: mockWorkCenters[0]?.id || "",
+    durationHours: 8,
+    overrideBlocked: false,
+    overrideReason: "",
+    notes: "",
   });
   const [selectedId, setSelectedId] = useState(jobs[0]?.id || null);
   const [dragging, setDragging] = useState(null);
@@ -366,7 +427,7 @@ export default function ProductionScheduler() {
   const today = formatDate(new Date());
 
   useEffect(() => {
-    localStorage.setItem("scheduler-jobs-v2", JSON.stringify(jobs));
+    localStorage.setItem("scheduler-tasks-v1", JSON.stringify(jobs));
   }, [jobs]);
 
   const visibleJobs = useMemo(() => {
@@ -427,6 +488,20 @@ export default function ProductionScheduler() {
     }
     return result;
   }, [jobs]);
+
+  useEffect(() => {
+    const conflictedIds = new Set(overlaps.flatMap((overlap) => overlap.jobs));
+    setJobs((current) => {
+      let changed = false;
+      const next = current.map((job) => {
+        const conflictStatus = conflictedIds.has(job.id) ? "CONFLICT" : "NONE";
+        if (job.conflictStatus === conflictStatus) return job;
+        changed = true;
+        return { ...job, conflictStatus };
+      });
+      return changed ? next : current;
+    });
+  }, [overlaps]);
 
   const lineUtilization = useMemo(
     () =>
@@ -495,9 +570,9 @@ export default function ProductionScheduler() {
         connected: true,
         busy: false,
         lastSyncedAt: payload.syncedAt,
-        message: `Loaded ${imported.length} jobs from master Excel`,
+        message: `Loaded ${imported.length} scheduled tasks from master Excel`,
       });
-      if (!quiet) showToast("Synced from Excel");
+      if (!quiet) showToast("Scheduled tasks synced from Excel");
     } catch (error) {
       setExcelSync({
         connected: false,
@@ -535,9 +610,9 @@ export default function ProductionScheduler() {
         connected: true,
         busy: false,
         lastSyncedAt: payload.syncedAt,
-        message: `Saved ${payload.saved} jobs to Excel`,
+        message: `Saved ${payload.saved} scheduled tasks to Excel`,
       });
-      showToast("Saved to Excel");
+      showToast("Scheduled tasks saved to Excel");
     } catch (error) {
       setExcelSync({
         connected: false,
@@ -604,33 +679,20 @@ export default function ProductionScheduler() {
         const next = { ...job, ...patch };
         if (next.end < next.start) next.end = next.start;
         if (next.due < next.start) next.due = next.end;
+        next.startDateTime = `${next.start}T08:00:00.000Z`;
+        next.endDateTime = `${next.end}T17:00:00.000Z`;
+        next.durationHours = dateDiffDays(next.start, next.end) * 8;
+        next.laneId = next.line;
         return next;
       }),
     );
   }
 
   function addJob(line = "L1") {
-    const job = normalizeJob(
-      {
-        id: String(nextId++),
-        name: "New School Project",
-        client: "School District",
-        line,
-        start: "2026-08-03",
-        end: "2026-08-28",
-        due: "2026-09-04",
-        color: JOB_COLORS[nextId % JOB_COLORS.length],
-        status: line === QUEUE ? "forecast" : "approved",
-        modules: 12,
-        crew: 10,
-        priority: "Medium",
-        notes: "",
-      },
-      nextId,
-    );
-    setJobs((current) => [...current, job]);
-    setSelectedId(job.id);
-    showToast("Job added");
+    const startX = dateToX("2026-08-03");
+    const endX = dateToX("2026-08-08");
+    setCreateTaskDraft({ line: line === QUEUE ? "L1" : line, startX, endX });
+    showToast("Complete Create Scheduled Task to add");
   }
 
   function duplicateSelected() {
@@ -648,14 +710,14 @@ export default function ProductionScheduler() {
     );
     setJobs((current) => [...current, copy]);
     setSelectedId(copy.id);
-    showToast("Job duplicated");
+    showToast("Scheduled task duplicated");
   }
 
   function deleteSelected() {
     if (!selectedJob) return;
     setJobs((current) => current.filter((job) => job.id !== selectedJob.id));
     setSelectedId(null);
-    showToast("Job deleted");
+    showToast("Scheduled task deleted");
   }
 
   function onFileChange(event) {
@@ -667,7 +729,7 @@ export default function ProductionScheduler() {
         const imported = parseCSV(readerEvent.target.result).map(csvRowToJob);
         setJobs(imported);
         setSelectedId(imported[0]?.id || null);
-        showToast(`Imported ${imported.length} jobs`);
+        showToast(`Imported ${imported.length} scheduled tasks`);
       } catch {
         showToast("Import failed");
       }
@@ -680,10 +742,10 @@ export default function ProductionScheduler() {
     const url = URL.createObjectURL(new Blob([jobsToCSV(jobs)], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = "production_schedule.csv";
+    link.download = "scheduled_tasks.csv";
     link.click();
     URL.revokeObjectURL(url);
-    showToast("CSV exported");
+    showToast("Scheduled tasks exported");
   }
 
   function onGridMouseDown(event) {
@@ -698,6 +760,63 @@ export default function ProductionScheduler() {
     }
     setSelectedId(null);
     setDrawing({ line, startX: getX(event.clientX), currentX: getX(event.clientX) });
+  }
+
+  function createScheduledTaskFromDraft(draft) {
+    const productionJob = productionJobs.find((item) => item.id === taskForm.productionJobId);
+    const gateIssues = productionJob ? getReleaseGateIssues(productionJob) : ["Production job is required"];
+    const blocked = gateIssues.length > 0;
+    if (blocked && (!taskForm.overrideBlocked || !taskForm.overrideReason.trim())) {
+      showToast("Blocked: add authorized override reason to schedule");
+      return;
+    }
+
+    const startDate = xToDate(Math.min(draft.startX, draft.endX));
+    const durationDays = Math.max(1, Math.round(taskForm.durationHours / 8));
+    const endDate = addDays(startDate, durationDays - 1);
+    const selectedWorkCenter = workCenters.find((wc) => wc.id === taskForm.workCenterId);
+    const id = String(nextId++);
+
+    const task = normalizeJob(
+      {
+        id,
+        name: productionJob?.jobNumber ? `${productionJob.jobNumber} · ${productionJob.customerName}` : "Scheduled Task",
+        client: productionJob?.customerName || "Unknown customer",
+        line: selectedWorkCenter?.laneId || draft.line,
+        start: startDate,
+        end: endDate,
+        due: productionJob?.dueDate || addDays(endDate, 5),
+        color: JOB_COLORS[nextId % JOB_COLORS.length],
+        status: blocked ? "hold" : "approved",
+        notes: taskForm.notes,
+        productionJobId: taskForm.productionJobId,
+        routingStepId: taskForm.routingStepId,
+        workCenterId: taskForm.workCenterId,
+        durationHours: taskForm.durationHours,
+        manuallyScheduled: true,
+        conflictStatus: "NONE",
+      },
+      nextId,
+    );
+
+    setScheduledTasks((current) => [...current, task]);
+    setSelectedId(id);
+    if (blocked) {
+      setOverrideLogs((current) => [
+        ...current,
+        {
+          id: `OVR-${Date.now()}`,
+          scheduledTaskId: id,
+          productionJobId: taskForm.productionJobId,
+          reason: taskForm.overrideReason.trim(),
+          createdAt: new Date().toISOString(),
+          gateIssues,
+        },
+      ]);
+    }
+    setCreateTaskDraft(null);
+    setTaskForm((current) => ({ ...current, notes: "", overrideBlocked: false, overrideReason: "" }));
+    showToast(blocked ? "Scheduled with override" : "Scheduled task created");
   }
 
   function startDrag(event, jobId) {
@@ -735,25 +854,7 @@ export default function ProductionScheduler() {
       if (drawing) {
         const startX = Math.min(drawing.startX, drawing.currentX);
         const endX = Math.max(drawing.startX, drawing.currentX);
-        const id = String(nextId++);
-        const job = normalizeJob(
-          {
-            id,
-            name: "New School Project",
-            client: "School District",
-            line: drawing.line,
-            start: xToDate(startX),
-            end: xToDate(endX),
-            due: addDays(xToDate(endX), 7),
-            color: JOB_COLORS[nextId % JOB_COLORS.length],
-            status: "forecast",
-            modules: 12,
-            crew: 10,
-          },
-          nextId,
-        );
-        setJobs((current) => [...current, job]);
-        setSelectedId(id);
+        setCreateTaskDraft({ line: drawing.line, startX, endX });
         setDrawing(null);
       }
     }
@@ -767,16 +868,17 @@ export default function ProductionScheduler() {
   }, [dayPx, drawing, getX, xToDate]);
 
   return (
-    <main className="ps-shell">
+    <main className={`ps-shell${embedded ? " ps-shell-embedded" : ""}`}>
+      {!embedded && (
       <header className="ps-topbar">
         <div>
           <p className="ps-eyebrow">Silver Creek Modular</p>
           <h1>Production Schedule</h1>
         </div>
         <div className="ps-actions">
-          <Button onClick={() => addJob("L1")}>+ Job</Button>
+          <Button onClick={() => addJob("L1")}>+ Scheduled Task</Button>
           <Button tone="quiet" onClick={() => addJob(QUEUE)}>
-            + Queue
+            + Task Queue
           </Button>
           <Button tone="quiet" onClick={() => fileRef.current?.click()}>
             Import CSV
@@ -793,9 +895,22 @@ export default function ProductionScheduler() {
           <input ref={fileRef} type="file" accept=".csv" className="ps-hidden" onChange={onFileChange} />
         </div>
       </header>
+      )}
+
+      {embedded && (
+        <section className="ps-embedded-actions">
+          <Button onClick={() => addJob("L1")}>+ Job</Button>
+          <Button tone="quiet" onClick={() => addJob(QUEUE)}>+ Queue</Button>
+          <Button tone="quiet" onClick={() => fileRef.current?.click()}>Import CSV</Button>
+          <Button tone="quiet" onClick={syncFromExcel} disabled={excelSync.busy}>Sync Excel</Button>
+          <Button tone="quiet" onClick={saveToExcel} disabled={excelSync.busy}>Save Excel</Button>
+          <Button tone="dark" onClick={exportCSV}>Export</Button>
+          <input ref={fileRef} type="file" accept=".csv" className="ps-hidden" onChange={onFileChange} />
+        </section>
+      )}
 
       <section className="ps-kpis">
-        <Kpi label="Jobs" value={kpis.jobs} sublabel={`${kpis.modules} total modules`} />
+        <Kpi label="Scheduled Tasks" value={kpis.jobs} sublabel={`${kpis.modules} total modules`} />
         <Kpi label="In Production" value={kpis.production} sublabel="active line work" tone="green" />
         <Kpi label="Plant Utilization" value={kpis.utilization} sublabel="year view across 4 lines" />
         <Kpi label="Avg. Readiness" value={kpis.readiness} sublabel="drawings, material, permits, QA" />
@@ -803,7 +918,7 @@ export default function ProductionScheduler() {
       </section>
 
       <section className="ps-controls" aria-label="Schedule controls">
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search job, district, or note" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search scheduled task, customer, or note" />
         <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
           <option value="all">All statuses</option>
           {Object.entries(STATUS_CONFIG).map(([key, value]) => (
@@ -915,7 +1030,7 @@ export default function ProductionScheduler() {
         <aside className="ps-side">
           <section className="ps-panel">
             <div className="ps-panel-head">
-              <h2>Job Details</h2>
+              <h2>Scheduled Task Details</h2>
               {selectedJob && <StatusChip status={selectedJob.status} />}
             </div>
             {selectedJob ? (
@@ -1145,12 +1260,12 @@ export default function ProductionScheduler() {
                 </div>
               </div>
             ) : (
-              <p className="ps-empty">Select a job, drag across a line to create one, or add a job from the top bar.</p>
+              <p className="ps-empty">Select a scheduled task, drag across a lane to create one, or add from the top bar.</p>
             )}
           </section>
 
           <section className="ps-panel">
-            <h2>Risks & Conflicts</h2>
+            <h2>Risks & Conflicts {overrideLogs.length > 0 ? `· Overrides ${overrideLogs.length}` : ""}</h2>
             <div className="ps-risk-list">
               {risks.length ? (
                 risks.map((risk, index) => (
@@ -1167,7 +1282,7 @@ export default function ProductionScheduler() {
           </section>
 
           <section className="ps-panel">
-            <h2>Unscheduled Queue</h2>
+            <h2>Unscheduled Task Queue</h2>
             <div className="ps-queue">
               {queuedJobs.length ? (
                 queuedJobs.map((job) => (
@@ -1185,7 +1300,79 @@ export default function ProductionScheduler() {
         </aside>
       </div>
 
+      {createTaskDraft && (
+        <div className="ps-modal-backdrop">
+          <div className="ps-panel" style={{ width: 540, maxWidth: "92vw", margin: "5vh auto", background: "#fff" }}>
+            <h2>Create Scheduled Task</h2>
+            <div className="ps-two">
+              <label>
+                Existing Production Job
+                <select value={taskForm.productionJobId} onChange={(event) => setTaskForm((current) => ({ ...current, productionJobId: event.target.value }))}>
+                  {productionJobs.map((job) => (
+                    <option key={job.id} value={job.id}>{job.jobNumber} - {job.customerName}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Existing Routing Step
+                <select value={taskForm.routingStepId} onChange={(event) => setTaskForm((current) => ({ ...current, routingStepId: event.target.value }))}>
+                  {routingSteps.map((step) => (
+                    <option key={step.id} value={step.id}>{step.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="ps-two">
+              <label>
+                Work Center / Lane
+                <select value={taskForm.workCenterId} onChange={(event) => setTaskForm((current) => ({ ...current, workCenterId: event.target.value }))}>
+                  {workCenters.map((center) => (
+                    <option key={center.id} value={center.id}>{center.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Duration (hours)
+                <input type="number" min="1" value={taskForm.durationHours} onChange={(event) => setTaskForm((current) => ({ ...current, durationHours: Number(event.target.value) || 1 }))} />
+              </label>
+            </div>
+            <label>
+              Start time
+              <input readOnly value={xToDate(Math.min(createTaskDraft.startX, createTaskDraft.endX))} />
+            </label>
+            {(() => {
+              const selectedJob = productionJobs.find((item) => item.id === taskForm.productionJobId);
+              const issues = selectedJob ? getReleaseGateIssues(selectedJob) : [];
+              return issues.length > 0 ? (
+                <div className="ps-source-note" style={{ color: "#b91c1c" }}>
+                  Blocked release gates: {issues.join(", ")}
+                </div>
+              ) : null;
+            })()}
+            <label>
+              Notes
+              <textarea value={taskForm.notes} onChange={(event) => setTaskForm((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={taskForm.overrideBlocked} onChange={(event) => setTaskForm((current) => ({ ...current, overrideBlocked: event.target.checked }))} />
+              Authorized override
+            </label>
+            {taskForm.overrideBlocked && (
+              <label>
+                Override reason (required)
+                <textarea value={taskForm.overrideReason} onChange={(event) => setTaskForm((current) => ({ ...current, overrideReason: event.target.value }))} />
+              </label>
+            )}
+            <div className="ps-editor-actions">
+              <Button tone="quiet" onClick={() => setCreateTaskDraft(null)}>Cancel</Button>
+              <Button onClick={() => createScheduledTaskFromDraft(createTaskDraft)}>Create Scheduled Task</Button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && <div className="ps-toast">{toast}</div>}
     </main>
   );
 }
+
+

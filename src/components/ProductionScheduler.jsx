@@ -3,6 +3,7 @@ import { useJobs } from "../hooks/useJobs.js";
 import { usePipelineDeals } from "../hooks/usePipelineDeals.js";
 import { useSubmittals } from "../hooks/useSubmittals.js";
 import { useUserProfiles } from "../hooks/useUserProfiles.js";
+import { registerAction, clearActions } from "../lib/schedulerActions.js";
 import { isSupabaseEnabled, supabase as supabaseClient } from "../lib/supabase.js";
 import { logActivity } from "../lib/activityApi.js";
 import PipelineKanban from "./PipelineKanban.jsx";
@@ -2056,7 +2057,11 @@ function ProcoreLiveTab({ job, syncing, setSyncing, syncResult, setSyncResult, u
     try {
       const res = await fetch("https://ixbffxowwvpzzuamvgix.supabase.co/functions/v1/procore-sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4YmZmeG93d3Zwenp1YW12Z2l4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5MDkxNjcsImV4cCI6MjA5NTQ4NTE2N30.kVfjwf3rWZZkUjms4dj-nAQzYsMy5_Hbz0_Ggzu0aA0",
+          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4YmZmeG93d3Zwenp1YW12Z2l4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5MDkxNjcsImV4cCI6MjA5NTQ4NTE2N30.kVfjwf3rWZZkUjms4dj-nAQzYsMy5_Hbz0_Ggzu0aA0",
+        },
         body: JSON.stringify({ job_number: job.jobNumber }),
       });
       const data = await res.json();
@@ -2861,6 +2866,8 @@ export default function ProductionScheduler({
   onLogout,
   initialModule = "dashboard",
   embedded = false,
+  activeModule: activeModuleProp,
+  onModuleChange,
 }) {
   const {
     jobs,
@@ -2889,7 +2896,12 @@ export default function ProductionScheduler({
   const [lineFilter, setLineFilter] = useState("all");
   const [pmFilter, setPmFilter] = useState("all");
   const [summaryList, setSummaryList] = useState(null);
-  const [activeModule, setActiveModule] = useState(initialModule);
+  const [activeModuleInternal, setActiveModuleInternal] = useState(initialModule);
+  const activeModule = activeModuleProp !== undefined ? activeModuleProp : activeModuleInternal;
+  const setActiveModule = (mod) => {
+    if (activeModuleProp === undefined) setActiveModuleInternal(mod);
+    if (onModuleChange) onModuleChange(mod);
+  };
   const [scheduleView, setScheduleView] = useState("production");
   const [factSheetId, setFactSheetId] = useState(null);
   const [dayPx, setDayPx] = useState(4);
@@ -3686,6 +3698,24 @@ export default function ProductionScheduler({
     showToast("Simulation applied");
   }
 
+  // ── Register contextual toolbar actions (used by AppShell when embedded) ──
+  useEffect(() => {
+    if (!embedded) return;
+    registerAction('addJob', () => addJob('L1'));
+    registerAction('addQueueJob', () => addJob(QUEUE));
+    registerAction('importCSV', () => fileRef.current?.click());
+    registerAction('exportCSV', exportCSV);
+    registerAction('syncExcel', syncFromExcel);
+    registerAction('saveExcel', saveToExcel);
+    registerAction('toggleSimulation', toggleSimulationMode);
+    registerAction('applySimulation', applySimulation);
+    registerAction('syncSalesExcel', syncFromSalesExcel);
+    registerAction('saveSalesExcel', savePipelineToExcel);
+    registerAction('openJob', (id) => setFactSheetId(id));
+    return () => clearActions();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, addJob, exportCSV]);
+
   // ── Loading state ───────────────────────────────────────────────────────
   if (dbLoading) {
     return (
@@ -4465,5 +4495,5 @@ export default function ProductionScheduler({
   );
 }
 
-
-
+// Named exports for global reuse
+export { JobFactSheet, FS_TABS, STATUS_CONFIG, jobLabel, displayDate, normalizeJob };
